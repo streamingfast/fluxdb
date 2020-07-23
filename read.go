@@ -38,8 +38,8 @@ func (fdb *FluxDB) ReadTabletAt(
 	ctx, span := dtracing.StartSpan(ctx, "read tablet", "tablet", tablet, "height", height)
 	defer span.End()
 
-	zlog := logging.Logger(ctx, zlog)
-	zlog.Debug("reading tablet", zap.Stringer("tablet", tablet), zap.Uint64("height", height))
+	zlogger := logging.Logger(ctx, zlog)
+	zlogger.Debug("reading tablet", zap.Stringer("tablet", tablet), zap.Uint64("height", height))
 
 	startKey := tablet.KeyAt(0)
 	endKey := tablet.KeyAt(height + 1)
@@ -51,15 +51,16 @@ func (fdb *FluxDB) ReadTabletAt(
 	}
 
 	if idx != nil {
-		zlog.Debug("tablet index exists, reconciling it", zap.Int("row_count", len(idx.Map)))
+		idxRowCount := idx.RowCount()
+		zlogger.Debug("tablet index exists, reconciling it", zap.Uint64("row_count", idxRowCount))
 		startKey = tablet.KeyAt(idx.AtHeight + 1)
 
 		// Let's pre-allocated `rowByPrimaryKey` and `keys`, `rows` is likely to need at least as much rows as in the index itself
-		rowByPrimaryKey = make(map[string]TabletRow, len(idx.Map))
-		keys := make([]string, len(idx.Map))
+		rowByPrimaryKey = make(map[string]TabletRow, idxRowCount)
+		keys := make([]string, idxRowCount)
 
 		i := 0
-		for primaryKey, height := range idx.Map {
+		for primaryKey, height := range idx.PrimaryKeyToHeight {
 			keys[i] = string(tablet.KeyForRowAt(height, primaryKey))
 			i++
 		}
@@ -70,7 +71,7 @@ func (fdb *FluxDB) ReadTabletAt(
 		chunkSize := 5000
 		chunks := int(math.Ceil(float64(len(keys)) / float64(chunkSize)))
 
-		zlog.Debug("reading index rows chunks", zap.Int("chunk_count", chunks))
+		zlogger.Debug("reading index rows chunks", zap.Int("chunk_count", chunks))
 		for i := 0; i < chunks; i++ {
 			chunkStart := i * chunkSize
 			chunkEnd := (i + 1) * chunkSize
@@ -80,7 +81,7 @@ func (fdb *FluxDB) ReadTabletAt(
 			}
 
 			keysChunk := keys[chunkStart:chunkEnd]
-			zlog.Debug("reading tablet index rows chunk", zap.Int("chunk_index", i), zap.Int("key_count", len(keysChunk)))
+			zlogger.Debug("reading tablet index rows chunk", zap.Int("chunk_index", i), zap.Int("key_count", len(keysChunk)))
 
 			keyRead := false
 			err := fdb.store.FetchTabletRows(ctx, keysChunk, func(key string, value []byte) error {
@@ -108,13 +109,13 @@ func (fdb *FluxDB) ReadTabletAt(
 			}
 		}
 
-		zlog.Debug("finished reconciling index")
+		zlogger.Debug("finished reconciling index")
 	}
 
-	zlog.Debug("reading tablet rows from database",
+	zlogger.Debug("reading tablet rows from database",
 		zap.Int("row_count", len(rowByPrimaryKey)),
 		zap.Bool("index_found", idx != nil),
-		zap.Int("index_row_count", idx.RowCount()),
+		zap.Uint64("index_row_count", idx.RowCount()),
 		zap.String("start_key", startKey),
 		zap.String("end_key", endKey),
 	)
@@ -145,7 +146,7 @@ func (fdb *FluxDB) ReadTabletAt(
 		return nil, err
 	}
 
-	zlog.Debug("reading tablet rows from speculative writes",
+	zlogger.Debug("reading tablet rows from speculative writes",
 		zap.Int("row_count", len(rowByPrimaryKey)),
 		zap.Int("speculative_write_count", len(speculativeWrites)),
 	)
@@ -164,7 +165,7 @@ func (fdb *FluxDB) ReadTabletAt(
 		}
 	}
 
-	zlog.Debug("post-processing tablet rows", zap.Int("row_count", len(rowByPrimaryKey)))
+	zlogger.Debug("post-processing tablet rows", zap.Int("row_count", len(rowByPrimaryKey)))
 
 	i := 0
 	rows := make([]TabletRow, len(rowByPrimaryKey))
@@ -175,7 +176,7 @@ func (fdb *FluxDB) ReadTabletAt(
 
 	sort.Slice(rows, func(i, j int) bool { return string(rows[i].PrimaryKey()) < string(rows[j].PrimaryKey()) })
 
-	zlog.Info("finished reading tablet rows", zap.Int("deleted_count", deletedCount), zap.Int("updated_count", updatedCount))
+	zlogger.Info("finished reading tablet rows", zap.Int("deleted_count", deletedCount), zap.Int("updated_count", updatedCount))
 	return rows, nil
 }
 
@@ -205,10 +206,11 @@ func (fdb *FluxDB) ReadTabletRowAt(
 	endKey := tablet.KeyAt(height + 1)
 	var row TabletRow
 	if idx != nil {
-		zlogger.Debug("tablet index exists, reconciling it", zap.Int("row_count", len(idx.Map)))
+		idxRowCount := idx.RowCount()
+		zlogger.Debug("tablet index exists, reconciling it", zap.Uint64("row_count", idxRowCount))
 		startKey = tablet.KeyAt(idx.AtHeight + 1)
 
-		if height, ok := idx.Map[primaryKey]; ok {
+		if height, ok := idx.PrimaryKeyToHeight[primaryKey]; ok {
 			rowKey := string(tablet.KeyForRowAt(height, primaryKey))
 			zlogger.Debug("reading index row", zap.String("row_key", rowKey))
 

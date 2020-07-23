@@ -55,6 +55,10 @@ func (t testTablet) KeyForRowAt(height uint64, primaryKey string) string {
 	return t.KeyAt(height) + "/" + primaryKey
 }
 
+func (t testTablet) IndexMapper() TabletIndexMapper {
+	return GenericTabletIndexMapper
+}
+
 func (t testTablet) PrimaryKeyByteCount() int {
 	return 8
 }

@@ -6,7 +6,7 @@ require (
 	github.com/abourget/llerrgroup v0.2.0
 	github.com/abourget/viperbind v0.1.0
 	github.com/coreos/bbolt v1.3.2
-	github.com/dfuse-io/bstream v0.0.0-20200602201235-217b145d1844
+	github.com/dfuse-io/bstream v0.0.2-0.20200723165551-55b8b4c9b523
 	github.com/dfuse-io/derr v0.0.0-20200417132224-d333cfd0e9a0
 	github.com/dfuse-io/dfuse-eosio v0.1.1-docker
 	github.com/dfuse-io/dmetrics v0.0.0-20200508170817-3b8cb01fee68
@@ -15,7 +15,7 @@ require (
 	github.com/dfuse-io/jsonpb v0.0.0-20200612204658-6541604ace82
 	github.com/dfuse-io/kvdb v0.0.0-20200619171121-937464bfbae5
 	github.com/dfuse-io/logging v0.0.0-20200417143534-5e26069a5e39
-	github.com/dfuse-io/pbgo v0.0.6-0.20200619193216-9bbf0c9fb1f8
+	github.com/dfuse-io/pbgo v0.0.6-0.20200723202513-64f295ee291f
 	github.com/dfuse-io/shutter v1.4.1-0.20200407040739-f908f9ab727f
 	github.com/eoscanada/bstream v1.7.1-0.20200326121139-a9fcd944fb9e
 	github.com/eoscanada/derr v1.0.2-0.20200322005543-aaeeedb97c88
@@ -49,4 +49,5 @@ go 1.13
 // This is required to fix build where 0.1.0 version is not considered a valid version because a v0 line does not exists
 // We replace with same commit, simply tricking go and tell him that's it's actually version 0.0.3
 replace github.com/census-instrumentation/opencensus-proto v0.1.0-0.20181214143942-ba49f56771b8 => github.com/census-instrumentation/opencensus-proto v0.0.3-0.20181214143942-ba49f56771b8
+
 replace github.com/dfuse-io/pbgo => /Users/maoueh/work/dfuse/pbgo

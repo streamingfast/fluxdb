@@ -15,8 +15,6 @@
 package fluxdb
 
 import (
-	"context"
-	"errors"
 	"fmt"
 	"testing"
 
@@ -25,77 +23,48 @@ import (
 )
 
 func TestTabletIndex_MarshalUnmarshalBinary(t *testing.T) {
-	type expected struct {
-		tableIndex *TableIndex
-		err        error
-	}
-
 	tests := []struct {
-		name     string
-		tablet   Tablet
-		atHeight uint64
-		buffer   []byte
-		expected expected
+		name   string
+		tablet Tablet
+		index  *TabletIndex
 	}{
 		{
 			"no_rows",
 			testTablet(""),
-			6,
-			[]byte{
-				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, // Squelched count
-				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Reserved
+			&TabletIndex{
+				AtHeight:           6,
+				SquelchCount:       2,
+				PrimaryKeyToHeight: nil,
 			},
-			expected{&TableIndex{
-				AtHeight:  6,
-				Squelched: 2,
-				Map:       map[string]uint64{},
-			}, nil},
 		},
 		{
 			"multi_rows",
 			testTablet(""),
-			6,
-			[]byte{
-				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, // Squelched count
-				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // Reserved
-				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, // Table row mapping 1
-				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x05, // Table row mapping 2
-			},
-			expected{&TableIndex{
-				AtHeight:  6,
-				Squelched: 2,
-				Map: map[string]uint64{
+			&TabletIndex{
+				AtHeight:     6,
+				SquelchCount: 2,
+				PrimaryKeyToHeight: map[string]uint64{
 					"0000000000000002": 4,
 					"0000000000000003": 5,
 				},
-			}, nil},
-		},
-		{
-			"misalign",
-			testTablet(""),
-			0,
-			[]byte{0x00},
-			expected{nil, errors.New("unable to unmarshal table index: 16 bytes alignment + 16 bytes metadata is off (has 1 bytes)")},
+			},
 		},
 	}
 
-	ctx := context.Background()
-
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			tableIndex, err := NewTableIndexFromBinary(ctx, test.tablet, test.atHeight, test.buffer)
+			tablet := test.tablet
+			mapper := tablet.IndexMapper()
+			index := test.index
 
-			require.Equal(t, test.expected.err, err)
-			if test.expected.err == nil {
-				assert.Equal(t, test.expected.tableIndex, tableIndex)
+			binary, err := mapper.EncodeIndex(index.SquelchCount, index.PrimaryKeyToHeight)
+			require.NoError(t, err)
 
-				bytes, err := tableIndex.MarshalBinary(ctx, test.tablet)
-				require.NoError(t, err)
+			squelchCount, primaryKeyToHeight, err := mapper.DecodeIndex(binary)
+			require.NoError(t, err)
 
-				tableIndexFromBytes, err := NewTableIndexFromBinary(ctx, test.tablet, test.atHeight, bytes)
-				require.NoError(t, err)
-				assert.Equal(t, test.expected.tableIndex, tableIndexFromBytes)
-			}
+			assert.Equal(t, index.SquelchCount, squelchCount)
+			assert.Equal(t, index.PrimaryKeyToHeight, primaryKeyToHeight)
 		})
 	}
 }
@@ -166,13 +135,13 @@ func TestShouldTriggerIndexing(t *testing.T) {
 
 			cache := &indexCache{
 				lastCounters: make(map[Tablet]int),
-				lastIndexes:  make(map[Tablet]*TableIndex),
+				lastIndexes:  make(map[Tablet]*TabletIndex),
 			}
 			cache.lastCounters[tablet] = test.mutationsCount
 			if test.indexRowCount != 0 {
-				t := &TableIndex{Map: make(map[string]uint64)}
+				t := &TabletIndex{PrimaryKeyToHeight: make(map[string]uint64)}
 				for i := 0; i < test.indexRowCount; i++ {
-					t.Map[fmt.Sprintf("%08x", i)] = 0
+					t.PrimaryKeyToHeight[fmt.Sprintf("%016x", i)] = 0
 				}
 				cache.lastIndexes[tablet] = t
 			}

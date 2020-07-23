@@ -22,6 +22,7 @@ import (
 
 	"github.com/dfuse-io/bstream"
 	pbfluxdb "github.com/dfuse-io/pbgo/dfuse/fluxdb/v1"
+	"github.com/golang/protobuf/proto"
 )
 
 var collections = map[string]bool{}
@@ -54,9 +55,55 @@ type Tablet interface {
 }
 
 type IndexableTablet interface {
-	PrimaryKeyByteCount() int
-	EncodePrimaryKey(buffer []byte, primaryKey string) error
-	DecodePrimaryKey(buffer []byte) (primaryKey string, err error)
+	IndexMapper() TabletIndexMapper
+}
+
+type TabletIndex struct {
+	AtHeight           uint64
+	SquelchCount       uint64
+	PrimaryKeyToHeight map[string]uint64
+}
+
+func NewTabletIndex() *TabletIndex {
+	return &TabletIndex{
+		PrimaryKeyToHeight: map[string]uint64{},
+	}
+}
+
+func (i *TabletIndex) RowCount() uint64 {
+	if i == nil {
+		return 0
+	}
+
+	return uint64(len(i.PrimaryKeyToHeight))
+}
+
+type TabletIndexMapper interface {
+	EncodeIndex(squelchCount uint64, primaryKeyToBlockNum map[string]uint64) ([]byte, error)
+	DecodeIndex(buffer []byte) (squelchCount uint64, primaryKeyToBlockNum map[string]uint64, err error)
+}
+
+var GenericTabletIndexMapper TabletIndexMapper = &genericTabletIndexMapper{}
+
+type genericTabletIndexMapper struct {
+}
+
+func (m *genericTabletIndexMapper) EncodeIndex(squelchCount uint64, primaryKeyToBlockNum map[string]uint64) ([]byte, error) {
+	index := &pbfluxdb.Index{}
+	index.SquelchedCount = squelchCount
+	index.PrimaryKeyToHeight = primaryKeyToBlockNum
+
+	return proto.Marshal(index)
+}
+
+func (m *genericTabletIndexMapper) DecodeIndex(buffer []byte) (squelchCount uint64, primaryKeyToBlockNum map[string]uint64, err error) {
+	index := &pbfluxdb.Index{}
+	if err = proto.Unmarshal(buffer, index); err != nil {
+		err = fmt.Errorf("unable to unmarshal index: %w", err)
+		return
+	}
+
+	return index.SquelchedCount, index.PrimaryKeyToHeight, nil
 }
 
 func ExplodeTabletKey(key string) (collection, tablet string, err error) {
@@ -122,7 +169,7 @@ func NewBaseTabletRow(tabletKey string, height uint64, primaryKey string, payloa
 func NewBaseTabletRowFromKV(rowKey string, rowValue []byte) (out BaseTabletRow, err error) {
 	collection, tabletKey, heightKey, primaryKey, err := ExplodeTabletRowKey(rowKey)
 	if err != nil {
-		return out, fmt.Errorf("unable to explode tablet row key %q: %s", rowKey, err)
+		return out, fmt.Errorf("unable to explode tablet row key %q: %w", rowKey, err)
 	}
 
 	out.Collection = collection
@@ -242,7 +289,7 @@ func NewBaseSingletEntry(singletKey string, height uint64, payload []byte) (out 
 func NewBaseSingleEntryFromKV(rowKey string, rowValue []byte) (out BaseSingletEntry, err error) {
 	collection, tabletKey, heightKey, err := ExplodeSingletEntryKey(rowKey)
 	if err != nil {
-		return out, fmt.Errorf("unable to explode singlet row key %q: %s", rowKey, err)
+		return out, fmt.Errorf("unable to explode singlet row key %q: %w", rowKey, err)
 	}
 
 	out.Collection = collection
