@@ -18,7 +18,6 @@ import (
 	"context"
 	"errors"
 
-	"github.com/dfuse-io/bstream"
 	"go.uber.org/zap"
 )
 
@@ -35,14 +34,13 @@ type Batch interface {
 	//        it straight? Since this is per storage engine, it would be a good place since
 	//        all saved element would pass through those methods...
 	SetRow(key string, value []byte)
-	SetLast(key string, value []byte)
+	SetLastCheckpoint(key string, value []byte)
 	SetIndex(key string, value []byte)
 
 	Reset()
 }
 
-type OnBlockRef func(key string, blockRef bstream.BlockRef) error
-type OnTabletRow func(key string, value []byte) error
+type OnKeyValue func(key string, value []byte) error
 
 // KVStore represents the abstraction needed by FluxDB to correctly use different
 // underlying KV storage engine.
@@ -57,17 +55,17 @@ type KVStore interface {
 
 	FetchTabletRow(ctx context.Context, key string) (value []byte, err error)
 
-	FetchTabletRows(ctx context.Context, keys []string, onTabletRow OnTabletRow) error
+	FetchTabletRows(ctx context.Context, keys []string, onKeyValue OnKeyValue) error
 
 	FetchSingletEntry(ctx context.Context, keyStart, keyEnd string) (key string, value []byte, err error)
 
-	ScanTabletRows(ctx context.Context, keyStart, keyEnd string, onTabletRow OnTabletRow) error
+	ScanTabletRows(ctx context.Context, keyStart, keyEnd string, onKeyValue OnKeyValue) error
 
-	// FetchLastWrittenBlock returns the latest written block reference that was correctly
+	// FetchLastWrittenCheckpoint returns the latest written checkpoint reference that was correctly
 	// committed to the storage system.
 	//
-	// If no block was ever written yet, this must return `nil, ErrNotFound`.
-	FetchLastWrittenBlock(ctx context.Context, key string) (out bstream.BlockRef, err error)
+	// If nothing was ever written yet, this must return `nil, ErrNotFound`.
+	FetchLastWrittenCheckpoint(ctx context.Context, key string) (value []byte, err error)
 
-	ScanLastShardsWrittenBlock(ctx context.Context, keyPrefix string, onBlockRef OnBlockRef) error
+	ScanLastShardsWrittenCheckpoint(ctx context.Context, keyPrefix string, onKeyValue OnKeyValue) error
 }

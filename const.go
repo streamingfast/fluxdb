@@ -14,4 +14,4 @@
 
 package fluxdb
 
-const lastBlockRowKey = "block"
+const lastCheckpointRowKey = "checkpoint"

@@ -31,7 +31,7 @@ import (
 func NewKVStore(dsnString string) (store.KVStore, error) {
 	dsn, err := url.Parse(dsnString)
 	if err != nil {
-		return nil, fmt.Errorf("parsing fluxdb dsn: %s", err)
+		return nil, fmt.Errorf("parsing fluxdb dsn: %w", err)
 	}
 
 	zlog.Info("creating underlying kv store engine", zap.String("scheme", dsn.Scheme), zap.String("dsn", dsnString))

@@ -75,7 +75,7 @@ func (s *Sharder) ProcessBlock(rawBlk *bstream.Block, rawObj interface{}) error 
 	if unshardedRequest.Height > s.stopBlock {
 		err := s.writeShards()
 		if err != nil {
-			return fmt.Errorf("unable to write shards to store: %s", err)
+			return fmt.Errorf("unable to write shards to store: %w", err)
 		}
 
 		return ErrCleanSourceStop
@@ -115,10 +115,10 @@ func (s *Sharder) ProcessBlock(rawBlk *bstream.Block, rawObj interface{}) error 
 		}
 
 		shardedRequest.Height = unshardedRequest.Height
-		shardedRequest.BlockID = unshardedRequest.BlockID
+		shardedRequest.BlockRef = unshardedRequest.BlockRef
 
 		if err := encoder.Encode(shardedRequest); err != nil {
-			return fmt.Errorf("encoding sharded request: %s", err)
+			return fmt.Errorf("encoding sharded request: %w", err)
 		}
 	}
 
@@ -152,7 +152,7 @@ func (s *Sharder) writeShards() error {
 
 			err := s.shardsStore.WriteObject(ctx, baseName, bytes.NewReader(buffer.Bytes()))
 			if err != nil {
-				return fmt.Errorf("unable to correctly write shard %d: %s", shardIndex, err)
+				return fmt.Errorf("unable to correctly write shard %d: %w", shardIndex, err)
 			}
 
 			buffer.Truncate(0)

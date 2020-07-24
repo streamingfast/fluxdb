@@ -67,9 +67,10 @@ func (fdb *FluxDB) Launch(enablePipeline bool) {
 		}
 
 		fdb.HeadBlock = func(ctx context.Context) bstream.BlockRef {
-			lastWrittenBlock, err := fdb.FetchLastWrittenBlock(ctx)
+			// FIXME (height): Will need to be revisited here for height support
+			_, lastWrittenBlock, err := fdb.FetchLastWrittenCheckpoint(ctx)
 			if err != nil {
-				fdb.Shutdown(fmt.Errorf("failed fetching the last written block ID: %w", err))
+				fdb.Shutdown(fmt.Errorf("failed fetching the last written block: %w", err))
 				return nil
 			}
 			return lastWrittenBlock

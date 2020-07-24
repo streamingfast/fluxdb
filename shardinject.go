@@ -45,7 +45,7 @@ func NewShardInjector(shardsStore dstore.Store, db *FluxDB) *ShardInjector {
 func parseFileName(filename string) (first, last uint64, err error) {
 	vals := strings.Split(filename, "-")
 	if len(vals) != 2 {
-		err = fmt.Errorf("cannot parse filename: %s", filename)
+		err = fmt.Errorf("cannot parse filename %q", filename)
 		return
 	}
 
@@ -70,7 +70,9 @@ func (s *ShardInjector) Run() (err error) {
 		cancelInjector()
 	})
 
-	startAfter, err := s.db.FetchLastWrittenBlock(ctx)
+	// FIXME (height): Probably a revisit of the sharding will be required if we move off block to height directly. At the same time,
+	//                 it could still be bound to block and still use height
+	_, startAfter, err := s.db.FetchLastWrittenCheckpoint(ctx)
 	if err != nil {
 		return err
 	}

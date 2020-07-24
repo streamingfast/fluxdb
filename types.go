@@ -338,8 +338,8 @@ type WriteRequest struct {
 	SingletEntries []SingletEntry
 	TabletRows     []TabletRow
 
-	Height  uint64
-	BlockID []byte
+	Height   uint64
+	BlockRef bstream.BlockRef
 }
 
 func (r *WriteRequest) AppendSingletEntry(entry SingletEntry) {

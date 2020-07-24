@@ -18,10 +18,17 @@ import (
 	"context"
 	"testing"
 
+	"github.com/dfuse-io/bstream"
 	"github.com/stretchr/testify/require"
 )
 
 func writeBatchOfRequests(t *testing.T, db *FluxDB, requests ...*WriteRequest) {
+	for _, request := range requests {
+		if request.BlockRef == nil {
+			request.BlockRef = bstream.BlockRefEmpty
+		}
+	}
+
 	require.NoError(t, db.WriteBatch(context.Background(), requests))
 }
 

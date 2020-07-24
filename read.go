@@ -20,12 +20,13 @@ import (
 	"fmt"
 	"math"
 	"sort"
-	"strings"
 
 	"github.com/dfuse-io/bstream"
 	"github.com/dfuse-io/dtracing"
 	"github.com/dfuse-io/fluxdb/store"
 	"github.com/dfuse-io/logging"
+	pbfluxdb "github.com/dfuse-io/pbgo/dfuse/fluxdb/v1"
+	"github.com/golang/protobuf/proto"
 	"go.uber.org/zap"
 )
 
@@ -105,7 +106,7 @@ func (fdb *FluxDB) ReadTabletAt(
 			}
 
 			if !keyRead {
-				return nil, fmt.Errorf("reading a tablet index yielded no row: %s", keysChunk)
+				return nil, fmt.Errorf("reading a tablet index yielded no row, had %d keys in chunk", len(keysChunk))
 			}
 		}
 
@@ -215,7 +216,7 @@ func (fdb *FluxDB) ReadTabletRowAt(
 			zlogger.Debug("reading index row", zap.String("row_key", rowKey))
 
 			value, err := fdb.store.FetchTabletRow(ctx, rowKey)
-			if err == store.ErrNotFound {
+			if errors.Is(err, store.ErrNotFound) {
 				return nil, fmt.Errorf("indexes mappings should not contain empty data, empty rows don't make sense in an index, row %s", rowKey)
 			}
 			if err != nil {
@@ -357,32 +358,36 @@ func (fdb *FluxDB) HasSeenAnyRowForTablet(ctx context.Context, tablet Tablet) (e
 	return fdb.store.HasTabletRow(ctx, tablet.Key())
 }
 
-func (fdb *FluxDB) FetchLastWrittenBlock(ctx context.Context) (out bstream.BlockRef, err error) {
+func (fdb *FluxDB) FetchLastWrittenCheckpoint(ctx context.Context) (height uint64, block bstream.BlockRef, err error) {
 	zlogger := logging.Logger(ctx, zlog)
 
-	lastBlockKey := fdb.lastBlockKey()
-	out, err = fdb.store.FetchLastWrittenBlock(ctx, lastBlockKey)
-	if err == store.ErrNotFound {
-		zlogger.Info("last written block empty, returning block ID 0")
-		return bstream.BlockRefFromID(strings.Repeat("00", 32)), nil
-	}
-
+	value, err := fdb.store.FetchLastWrittenCheckpoint(ctx, fdb.lastCheckpointKey())
 	if err != nil {
-		return out, fmt.Errorf("kv store: %w", err)
+		if errors.Is(err, store.ErrNotFound) {
+			zlogger.Info("last written block empty, returning empty checkpoint values")
+			return 0, bstream.BlockRefEmpty, nil
+		}
+
+		return 0, nil, fmt.Errorf("kv store: %w", err)
 	}
 
-	zlogger.Debug("last written block", zap.Stringer("block", out))
+	height, block, err = unmarshalCheckpoint(value)
+	if err != nil {
+		return 0, nil, fmt.Errorf("unable to unmarshal checkpoint: %w", err)
+	}
+
+	zlogger.Debug("last written checkpoint", zap.Uint64("height", height), zap.Stringer("block", block))
 	return
 }
 
 func (fdb *FluxDB) CheckCleanDBForSharding() error {
-	_, err := fdb.store.FetchLastWrittenBlock(context.Background(), lastBlockRowKey)
-	if err == store.ErrNotFound {
-		// When there is nothing, it's what we expect, so there is no error
-		return nil
-	}
-
+	_, err := fdb.store.FetchLastWrittenCheckpoint(context.Background(), lastCheckpointRowKey)
 	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			// When there is nothing, it's what we expect, so there is no error
+			return nil
+		}
+
 		return err
 	}
 
@@ -390,10 +395,22 @@ func (fdb *FluxDB) CheckCleanDBForSharding() error {
 	return errors.New("live injector's marker of last written block present, expected no element to exist")
 }
 
-func (fdb *FluxDB) lastBlockKey() string {
+func (fdb *FluxDB) lastCheckpointKey() string {
 	if fdb.IsSharding() {
 		return fmt.Sprintf("shard-%03d", fdb.shardIndex)
 	}
 
-	return lastBlockRowKey
+	return lastCheckpointRowKey
+}
+
+func unmarshalCheckpoint(value []byte) (height uint64, block bstream.BlockRef, err error) {
+	var checkpoint pbfluxdb.Checkpoint
+	err = proto.Unmarshal(value, &checkpoint)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	height = checkpoint.Height
+	block = bstream.NewBlockRef(checkpoint.Block.Id, checkpoint.Block.Num)
+	return
 }

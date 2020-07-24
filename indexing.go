@@ -17,6 +17,7 @@ package fluxdb
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 
 	"github.com/dfuse-io/dtracing"
@@ -137,7 +138,7 @@ func (fdb *FluxDB) getIndex(ctx context.Context, height uint64, tablet Tablet) (
 
 	zlog.Debug("reading table index row", zap.String("start_index_key", startIndexKey))
 	rowKey, rawIndex, err := fdb.store.FetchIndex(ctx, tabletKey, prefixKey, startIndexKey)
-	if err == store.ErrNotFound {
+	if errors.Is(err, store.ErrNotFound) {
 		return nil, nil
 	}
 

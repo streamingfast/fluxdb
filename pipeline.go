@@ -136,7 +136,7 @@ func (p *FluxDBHandler) EnableWriteOnEachIrreversibleStep() {
 }
 
 func (p *FluxDBHandler) InitializeStartBlockID() (startBlock bstream.BlockRef, err error) {
-	startBlock, err = p.db.FetchLastWrittenBlock(p.ctx)
+	_, startBlock, err = p.db.FetchLastWrittenCheckpoint(p.ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -189,9 +189,9 @@ func (p *FluxDBHandler) updateSpeculativeWrites(newHeadBlock bstream.BlockRef) {
 }
 
 func (p *FluxDBHandler) ProcessBlock(rawBlk *bstream.Block, rawObj interface{}) error {
-	blkRef := bstream.BlockRefFromID(rawBlk.ID())
+	blkRef := rawBlk.AsRef()
 	if rawBlk.Num()%600 == 0 {
-		zlog.Info("processing block (printed each 600 blocks)", zap.Stringer("block", rawBlk))
+		zlog.Info("processing block (printed each 600 blocks)", zap.Stringer("block", blkRef))
 	}
 
 	// TODO: implement based on a Forkable object.. will be quite simpler
@@ -206,12 +206,7 @@ func (p *FluxDBHandler) ProcessBlock(rawBlk *bstream.Block, rawObj interface{}) 
 			}
 		}
 
-		p.serverForkDB.AddLink(
-			blkRef,
-			bstream.BlockRefFromID(rawBlk.PreviousID()),
-			fObj.Obj.(*WriteRequest),
-		)
-
+		p.serverForkDB.AddLink(blkRef, rawBlk.PreviousRef(), fObj.Obj.(*WriteRequest))
 		p.updateSpeculativeWrites(rawBlk)
 
 	case forkable.StepIrreversible:
@@ -262,7 +257,8 @@ func (p *FluxDBHandler) ProcessBlock(rawBlk *bstream.Block, rawObj interface{}) 
 			// Fetch from database, and sync with the writer before truncating the LIB here.
 			// Don't ask more than once each 2 seconds..
 			if p.lastBlockIDCheck.Before(time.Now().Add(-2 * time.Second)) {
-				lastWrittenBlock, err := p.db.FetchLastWrittenBlock(p.ctx)
+				// FIXME (height): Will need to be revisited here for height support
+				_, lastWrittenBlock, err := p.db.FetchLastWrittenCheckpoint(p.ctx)
 				if err != nil {
 					return err
 				}

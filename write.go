@@ -16,14 +16,15 @@ package fluxdb
 
 import (
 	"context"
-	"encoding/hex"
 	"fmt"
 	"strings"
 
-	"github.com/dfuse-io/bstream"
 	"github.com/dfuse-io/dtracing"
 	"github.com/dfuse-io/fluxdb/store"
 	"github.com/dfuse-io/logging"
+	pbbstream "github.com/dfuse-io/pbgo/dfuse/bstream/v1"
+	pbfluxdb "github.com/dfuse-io/pbgo/dfuse/fluxdb/v1"
+	"github.com/golang/protobuf/proto"
 	"go.uber.org/zap"
 )
 
@@ -63,8 +64,14 @@ func (fdb *FluxDB) WriteBatch(ctx context.Context, w []*WriteRequest) error {
 
 func (fdb *FluxDB) VerifyAllShardsWritten(ctx context.Context) (string, error) {
 	seen := make(map[string]string)
-	if err := fdb.store.ScanLastShardsWrittenBlock(ctx, "shard-", func(key string, blockRef bstream.BlockRef) error {
-		seen[strings.TrimPrefix(key, "shard-")] = blockRef.ID()
+	if err := fdb.store.ScanLastShardsWrittenCheckpoint(ctx, "shard-", func(key string, value []byte) error {
+		// FIXME (height): Will need to revisit that part if we start to migrate to a "height" fluxdb system
+		_, block, err := unmarshalCheckpoint(value)
+		if err != nil {
+			return fmt.Errorf("unable to unmarshal checkpoint: %w", err)
+		}
+
+		seen[strings.TrimPrefix(key, "shard-")] = block.ID()
 		return nil
 	}); err != nil {
 		return "", err
@@ -107,7 +114,7 @@ func (fdb *FluxDB) VerifyAllShardsWritten(ctx context.Context) (string, error) {
 
 func (fdb *FluxDB) UpdateGlobalLastBlockID(ctx context.Context, blockID string) error {
 	batch := fdb.store.NewBatch(zlog)
-	batch.SetLast(lastBlockRowKey, []byte(blockID))
+	batch.SetLastCheckpoint(lastCheckpointRowKey, []byte(blockID))
 	if err := batch.Flush(ctx); err != nil {
 		return fmt.Errorf("flushing last block marker: %w", err)
 	}
@@ -140,7 +147,16 @@ func (fdb *FluxDB) writeBlock(ctx context.Context, batch store.Batch, w *WriteRe
 		}
 	}
 
-	batch.SetLast(fdb.lastBlockKey(), []byte(hex.EncodeToString(w.BlockID)))
+	checkpoint := pbfluxdb.Checkpoint{
+		Height: w.Height,
+		Block:  &pbbstream.BlockRef{Id: w.BlockRef.ID(), Num: w.BlockRef.Num()},
+	}
+	last, err := proto.Marshal(&checkpoint)
+	if err != nil {
+		return fmt.Errorf("unable to marshal checkpoint: %w", err)
+	}
+
+	batch.SetLastCheckpoint(fdb.lastCheckpointKey(), last)
 	return nil
 }
 
@@ -148,11 +164,12 @@ func (fdb *FluxDB) isNextBlock(ctx context.Context, writeHeight uint64) error {
 	zlogger := logging.Logger(ctx, zlog)
 	zlogger.Debug("checking if is next block", zap.Uint64("height", writeHeight))
 
-	lastBlock, err := fdb.FetchLastWrittenBlock(ctx)
+	_, lastBlock, err := fdb.FetchLastWrittenCheckpoint(ctx)
 	if err != nil {
 		return err
 	}
 
+	// FIXME (height): This works only for block num, if we move to a "height" structure, we should just check if linear probably
 	lastHeight := lastBlock.Num()
 	if lastHeight != writeHeight-1 && lastHeight != 0 && lastHeight != 1 {
 		return fmt.Errorf("block %d does not follow last block %d in db", writeHeight, lastHeight)

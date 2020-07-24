@@ -16,27 +16,28 @@ package kv
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
 
-	"github.com/dfuse-io/bstream"
 	"github.com/dfuse-io/dtracing"
 	"github.com/dfuse-io/fluxdb/store"
 	kv "github.com/dfuse-io/kvdb/store"
+	"github.com/dfuse-io/logging"
 	"go.uber.org/zap"
 )
 
 var TblPrefixName = map[byte]string{
-	TblPrefixRows:  "tablet",
-	TblPrefixIndex: "index",
-	TblPrefixLast:  "block",
+	TblPrefixRows:           "tablet",
+	TblPrefixIndex:          "index",
+	TblPrefixLastCheckpoint: "checkpoint",
 }
 
 const (
-	TblPrefixRows  = 0x00
-	TblPrefixIndex = 0x01
-	TblPrefixLast  = 0x03
+	TblPrefixRows           = 0x00
+	TblPrefixIndex          = 0x01
+	TblPrefixLastCheckpoint = 0x03
 )
 
 var TableMapper = map[byte]string{}
@@ -125,13 +126,13 @@ func (s *KVStore) FetchTabletRow(ctx context.Context, key string) (value []byte,
 	return s.fetchKey(ctx, TblPrefixRows, key)
 }
 
-func (s *KVStore) FetchTabletRows(ctx context.Context, keys []string, onTabletRow store.OnTabletRow) error {
-	return s.fetchKeys(ctx, TblPrefixRows, keys, onTabletRow)
+func (s *KVStore) FetchTabletRows(ctx context.Context, keys []string, onKeyValue store.OnKeyValue) error {
+	return s.fetchKeys(ctx, TblPrefixRows, keys, onKeyValue)
 }
 
-func (s *KVStore) ScanTabletRows(ctx context.Context, keyStart, keyEnd string, onTabletRow store.OnTabletRow) error {
+func (s *KVStore) ScanTabletRows(ctx context.Context, keyStart, keyEnd string, onKeyValue store.OnKeyValue) error {
 	err := s.scanRange(ctx, TblPrefixRows, keyStart, keyEnd, kv.Unlimited, func(key string, value []byte) error {
-		err := onTabletRow(key, value)
+		err := onKeyValue(key, value)
 		if err == store.BreakScan {
 			return store.BreakScan
 		}
@@ -150,19 +151,19 @@ func (s *KVStore) ScanTabletRows(ctx context.Context, keyStart, keyEnd string, o
 	return nil
 }
 
-func (s *KVStore) FetchLastWrittenBlock(ctx context.Context, key string) (out bstream.BlockRef, err error) {
-	zlog.Debug("fetching last written block", zap.String("key", key))
-	value, err := s.fetchKey(ctx, TblPrefixLast, key)
+func (s *KVStore) FetchLastWrittenCheckpoint(ctx context.Context, key string) (out []byte, err error) {
+	logging.Logger(ctx, zlog).Debug("fetching last written block", zap.String("key", key))
+	value, err := s.fetchKey(ctx, TblPrefixLastCheckpoint, key)
 	if err != nil {
 		return nil, err
 	}
 
-	return bstream.BlockRefFromID(string(value)), nil
+	return value, nil
 }
 
-func (s *KVStore) ScanLastShardsWrittenBlock(ctx context.Context, keyPrefix string, onBlockRef store.OnBlockRef) error {
-	err := s.scanPrefix(ctx, TblPrefixLast, keyPrefix, kv.Unlimited, func(key string, value []byte) error {
-		err := onBlockRef(key, bstream.BlockRefFromID(value))
+func (s *KVStore) ScanLastShardsWrittenCheckpoint(ctx context.Context, keyPrefix string, onKeyValue store.OnKeyValue) error {
+	err := s.scanPrefix(ctx, TblPrefixLastCheckpoint, keyPrefix, kv.Unlimited, func(key string, value []byte) error {
+		err := onKeyValue(key, value)
 		if err == store.BreakScan {
 			return store.BreakScan
 		}
@@ -175,18 +176,17 @@ func (s *KVStore) ScanLastShardsWrittenBlock(ctx context.Context, keyPrefix stri
 	})
 
 	if err != nil && err != store.BreakScan {
-		return fmt.Errorf("unable to determine if table %q has key prefix %q: %w", TblPrefixLast, keyPrefix, err)
+		return fmt.Errorf("unable to determine if table %q has key prefix %q: %w", TblPrefixLastCheckpoint, keyPrefix, err)
 	}
 
 	return nil
 }
 
 func (s *KVStore) fetchKey(ctx context.Context, table byte, key string) (out []byte, err error) {
-
 	kvKey := packKey(table, key)
 
 	out, err = s.db.Get(ctx, kvKey)
-	if err == kv.ErrNotFound {
+	if errors.Is(err, kv.ErrNotFound) {
 		return nil, store.ErrNotFound
 	}
 
@@ -197,7 +197,7 @@ func (s *KVStore) fetchKey(ctx context.Context, table byte, key string) (out []b
 	return out, nil
 }
 
-func (s *KVStore) fetchKeys(batchCtx context.Context, table byte, keys []string, onTabletRow store.OnTabletRow) error {
+func (s *KVStore) fetchKeys(batchCtx context.Context, table byte, keys []string, onKeyValue store.OnKeyValue) error {
 	batchCtx, cancelBatch := context.WithCancel(batchCtx)
 	defer cancelBatch()
 
@@ -216,7 +216,7 @@ func (s *KVStore) fetchKeys(batchCtx context.Context, table byte, keys []string,
 		}
 
 		_, key := unpackKey(itr.Item().Key)
-		err := onTabletRow(key, value)
+		err := onKeyValue(key, value)
 		if err == store.BreakScan {
 			return nil
 		}
@@ -260,7 +260,8 @@ func (s *KVStore) scanPrefix(ctx context.Context, table byte, prefixKey string, 
 }
 
 func (s *KVStore) scanRange(ctx context.Context, table byte, keyStart, keyEnd string, limit int, onRow func(key string, value []byte) error) error {
-	zlog.Debug("scanning range", zap.String("start", keyStart), zap.String("end", keyEnd))
+	logging.Logger(ctx, zlog).Debug("scanning range", zap.String("start", keyStart), zap.String("end", keyEnd))
+
 	startKey := packKey(table, keyStart)
 	var endKey []byte
 
@@ -321,9 +322,9 @@ func newBatch(store *KVStore, logger *zap.Logger) *batch {
 func (b *batch) Reset() {
 	b.count = 0
 	b.tableMutations = map[byte]map[string][]byte{
-		TblPrefixRows:  make(map[string][]byte),
-		TblPrefixIndex: make(map[string][]byte),
-		TblPrefixLast:  make(map[string][]byte),
+		TblPrefixRows:           make(map[string][]byte),
+		TblPrefixIndex:          make(map[string][]byte),
+		TblPrefixLastCheckpoint: make(map[string][]byte),
 	}
 }
 
@@ -357,7 +358,7 @@ func (b *batch) Flush(ctx context.Context) error {
 		TblPrefixIndex,
 
 		// The table name `last` must always be the last table in this list!
-		TblPrefixLast,
+		TblPrefixLastCheckpoint,
 	}
 
 	// TODO: We could eventually parallelize this, but remember, last would need to be processed last, after all others!
@@ -400,8 +401,8 @@ func (b *batch) SetRow(key string, value []byte) {
 	b.setTable(TblPrefixRows, key, value)
 }
 
-func (b *batch) SetLast(key string, value []byte) {
-	b.setTable(TblPrefixLast, key, value)
+func (b *batch) SetLastCheckpoint(key string, value []byte) {
+	b.setTable(TblPrefixLastCheckpoint, key, value)
 }
 
 func (b *batch) SetIndex(key string, tableSnapshot []byte) {
