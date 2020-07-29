@@ -19,10 +19,13 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
 
 	"github.com/dfuse-io/dtracing"
 	"github.com/dfuse-io/fluxdb/store"
 	"github.com/dfuse-io/logging"
+	pbfluxdb "github.com/dfuse-io/pbgo/dfuse/fluxdb/v1"
+	"github.com/golang/protobuf/proto"
 	"go.uber.org/zap"
 )
 
@@ -44,31 +47,33 @@ func (fdb *FluxDB) IndexTables(ctx context.Context) error {
 			return fmt.Errorf("flush if full: %w", err)
 		}
 
+		indexSinglet := newIndexSinglet(tablet)
+
 		zlog.Debug("checking if index already exist in cache")
 		index := fdb.idxCache.GetIndex(tablet)
 		if index == nil {
 			zlog.Debug("index not in cache")
 
-			var err error
-			index, err = fdb.getIndex(ctx, height, tablet)
-			if err != nil {
-				return fmt.Errorf("get index %s (%d): %w", tablet, height, err)
-			}
-
-			if index == nil {
+			indexEntry, err := fdb.ReadSingletEntryAt(ctx, indexSinglet, math.MaxUint64, nil)
+			if errors.Is(err, store.ErrNotFound) {
 				zlog.Debug("index does not exist yet, creating empty one")
 				index = NewTabletIndex()
+			} else if err != nil {
+				return fmt.Errorf("get index %s (%d): %w", tablet, height, err)
+			} else {
+				index = indexEntry.(indexSingletEntry).index
 			}
 		}
 
-		startKey := tablet.KeyAt(index.AtHeight + 1)
-		endKey := tablet.KeyAt(height + 1)
+		startKey := KeyForTabletAt(tablet, index.AtHeight+1)
+		endKey := KeyForTabletAt(tablet, height+1)
 
-		zlog.Debug("reading table rows for indexation", zap.String("first_row_key", startKey), zap.String("last_row_key", endKey))
+		zlog.Debug("reading table rows for indexation", zap.Stringer("first_row_key", startKey), zap.Stringer("last_row_key", endKey))
 
 		count := 0
-		err := fdb.store.ScanTabletRows(ctx, startKey, endKey, func(key string, value []byte) error {
-			row, err := tablet.NewRowFromKV(key, value)
+		err := fdb.store.ScanTabletRows(ctx, startKey, endKey, func(key []byte, value []byte) error {
+			// We are really only interested by the row's key here, so we don't give it any value, just like if it would be a deleted row
+			row, err := NewTabletRow(tablet, key, nil)
 			if err != nil {
 				return fmt.Errorf("couldn't parse row key %q: %w", key, err)
 			}
@@ -76,9 +81,9 @@ func (fdb *FluxDB) IndexTables(ctx context.Context) error {
 			count++
 
 			if len(value) == 0 {
-				delete(index.PrimaryKeyToHeight, row.PrimaryKey())
+				index.PrimaryKeyToHeight.delete(row.PrimaryKey())
 			} else {
-				index.PrimaryKeyToHeight[row.PrimaryKey()] = row.Height()
+				index.PrimaryKeyToHeight.put(row.PrimaryKey(), row.Height())
 			}
 
 			return nil
@@ -95,24 +100,22 @@ func (fdb *FluxDB) IndexTables(ctx context.Context) error {
 			zap.Stringer("tablet", tablet),
 			zap.Uint64("at_height", index.AtHeight),
 			zap.Uint64("squelched_count", index.SquelchCount),
-			zap.Int("row_count", len(index.PrimaryKeyToHeight)),
+			zap.Int("row_count", index.PrimaryKeyToHeight.len()),
 		)
 
-		snapshot, err := tablet.IndexMapper().EncodeIndex(index.SquelchCount, index.PrimaryKeyToHeight)
+		indexEntry := newIndexSingletEntry(indexSinglet, index)
+		value, err := indexEntry.MarshalValue()
 		if err != nil {
-			return fmt.Errorf("unable to marshal tablet index to binary: %w", err)
+			return fmt.Errorf("singlet to proto: %w", err)
 		}
 
-		indexKey := tablet.Key() + "/" + HexRevHeight(index.AtHeight)
-
-		byteCount := len(snapshot)
-		if byteCount > 25000000 {
-			zlog.Warn("table index pretty heavy", zap.String("index_key", indexKey), zap.Int("byte_count", byteCount))
+		if len(value) > 25000000 {
+			zlog.Warn("index singlet pretty heavy", zap.Stringer("index_entry", indexEntry), zap.Int("byte_count", len(value)))
 		}
 
-		batch.SetIndex(indexKey, snapshot)
+		batch.SetRow(KeyForSingletEntry(indexEntry), value)
 
-		zlog.Debug("caching index in index cache", zap.String("index_key", indexKey), zap.Stringer("tablet", tablet))
+		zlog.Debug("caching index in index cache", zap.Stringer("index_entry", indexEntry), zap.Stringer("tablet", tablet))
 		fdb.idxCache.CacheIndex(tablet, index)
 		fdb.idxCache.ResetCounter(tablet)
 		delete(fdb.idxCache.scheduleIndexing, tablet)
@@ -125,42 +128,25 @@ func (fdb *FluxDB) IndexTables(ctx context.Context) error {
 	return nil
 }
 
-func (fdb *FluxDB) getIndex(ctx context.Context, height uint64, tablet Tablet) (index *TabletIndex, err error) {
+// getIndex returns the latest active index at the provided height. If there is
+// index available at this height, this method returns `nil` as the index value.
+func (fdb *FluxDB) getIndex(ctx context.Context, tablet Tablet, height uint64) (*TabletIndex, error) {
 	ctx, span := dtracing.StartSpan(ctx, "get index")
 	defer span.End()
 
 	zlog := logging.Logger(ctx, zlog)
-	zlog.Debug("fetching table index from database", zap.Stringer("tablet", tablet), zap.Uint64("height", height))
+	zlog.Debug("fetching tablet index from database", zap.Stringer("tablet", tablet), zap.Uint64("height", height))
 
-	tabletKey := string(tablet.Key())
-	prefixKey := tabletKey + "/"
-	startIndexKey := prefixKey + HexRevHeight(height)
-
-	zlog.Debug("reading table index row", zap.String("start_index_key", startIndexKey))
-	rowKey, rawIndex, err := fdb.store.FetchIndex(ctx, tabletKey, prefixKey, startIndexKey)
-	if errors.Is(err, store.ErrNotFound) {
-		return nil, nil
-	}
-
+	indexEntry, err := fdb.ReadSingletEntryAt(ctx, newIndexSinglet(tablet), height, nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to read entry: %w", err)
 	}
 
-	indexHeight, err := chunkKeyRevHeight(rowKey, prefixKey)
-	if err != nil {
-		return nil, fmt.Errorf("couldn't infer block num in table index's row key: %w", err)
+	if indexEntry != nil {
+		return indexEntry.(indexSingletEntry).index, nil
 	}
 
-	index = &TabletIndex{
-		AtHeight: indexHeight,
-	}
-
-	index.SquelchCount, index.PrimaryKeyToHeight, err = tablet.IndexMapper().DecodeIndex(rawIndex)
-	if err != nil {
-		return nil, fmt.Errorf("couldn't decode tablet index: %w", err)
-	}
-
-	return index, nil
+	return nil, nil
 }
 
 type indexCache struct {
@@ -209,13 +195,11 @@ func (t *indexCache) shouldTriggerIndexing(tablet Tablet) bool {
 		return true
 	}
 
-	indexRowCount := len(lastIndex.PrimaryKeyToHeight)
-
-	if indexRowCount > 50000 && mutatedRowsCount < 5000 {
+	if lastIndex.RowCount() > 50000 && mutatedRowsCount < 5000 {
 		return false
 	}
 
-	if indexRowCount > 100000 && mutatedRowsCount < 10000 {
+	if lastIndex.RowCount() > 100000 && mutatedRowsCount < 10000 {
 		return false
 	}
 
@@ -230,160 +214,128 @@ func (t *indexCache) IndexingSchedule() map[Tablet]uint64 {
 	return t.scheduleIndexing
 }
 
-// type TableIndex struct {
-// 	AtHeight  uint64
-// 	Squelched uint64
-// 	Map       map[string]uint64 // Map[primaryKey] => height
-// }
+var indexSingletCollection uint16 = 0xFFFF
+var indexSingletCollectionName string = "idx"
 
-// func NewTableIndex() *TableIndex {
-// 	return &TableIndex{Map: make(map[string]uint64)}
-// }
+func init() {
+	registerSingletFactory(indexSingletCollection, indexSingletCollectionName, func(identifier []byte) (Singlet, error) {
+		// Our identifier is the full `TabletKey` which contains the collection and the tablet identifier
+		tablet, err := NewTablet(identifier)
+		if err != nil {
+			return nil, fmt.Errorf("index tablet: %w", err)
+		}
 
-// func (index *TableIndex) RowCount() int {
-// 	if index == nil {
-// 		return 0
-// 	}
+		return newIndexSinglet(tablet), nil
+	})
+}
 
-// 	return len(index.Map)
-// }
+type indexSinglet struct {
+	tabletKey TabletKey
+}
 
-// func NewTableIndexFromBinary(ctx context.Context, tablet Tablet, atHeight uint64, buffer []byte) (*TableIndex, error) {
-// 	ctx, span := dtracing.StartSpan(ctx, "new table index from binary", "tablet", tablet, "height", atHeight)
-// 	defer span.End()
+func newIndexSinglet(forTablet Tablet) indexSinglet {
+	return indexSinglet{tabletKey: KeyForTablet(forTablet)}
+}
 
-// 	// Byte count for primary key + 8 bytes for block num value
-// 	primaryKeyByteCount := tablet.PrimaryKeyByteCount()
-// 	entryByteCount := primaryKeyByteCount + 8
+func (s indexSinglet) Collection() uint16 {
+	return indexSingletCollection
+}
 
-// 	// First 16 bytes are reserved to keep stats in there..
-// 	byteCount := len(buffer)
-// 	if (byteCount-16) < 0 || (byteCount-16)%entryByteCount != 0 {
-// 		return nil, fmt.Errorf("unable to unmarshal table index: %d bytes alignment + 16 bytes metadata is off (has %d bytes)", entryByteCount, byteCount)
-// 	}
+func (s indexSinglet) Identifier() []byte {
+	// Our singlet identifier is the actual full TabletKey (including its collection bytes)
+	return s.tabletKey
+}
 
-// 	mapping := map[string]uint64{}
-// 	for pos := 16; pos < byteCount; pos += entryByteCount {
-// 		primaryKey, err := tablet.DecodePrimaryKey(buffer[pos:])
-// 		if err != nil {
-// 			return nil, fmt.Errorf("unable to read primary key for tablet %q: %w", tablet, err)
-// 		}
+func (s indexSinglet) Entry(height uint64, value []byte) (SingletEntry, error) {
+	indexProto := pbfluxdb.TabletIndex{}
+	if err := proto.Unmarshal(value, &indexProto); err != nil {
+		return nil, fmt.Errorf("unmarshal index: %w", err)
+	}
 
-// 		blockNumPtr := bigEndian.Uint64(buffer[pos+primaryKeyByteCount:])
-// 		mapping[primaryKey] = blockNumPtr
-// 	}
+	index := &TabletIndex{
+		AtHeight:     height,
+		SquelchCount: indexProto.SquelchedCount,
+	}
 
-// 	return &TableIndex{
-// 		AtHeight:  atHeight,
-// 		Squelched: bigEndian.Uint64(buffer[:8]),
-// 		Map:       mapping,
-// 	}, nil
-// }
+	entryCount := len(indexProto.Entries)
+	if entryCount > 0 {
+		index.PrimaryKeyToHeight = newPrimaryKeyToHeightMap(entryCount)
+		for _, entry := range indexProto.Entries {
+			index.PrimaryKeyToHeight.put(entry.PrimaryKey, entry.Height)
+		}
+	} else {
+		index.PrimaryKeyToHeight = &primaryKeyToHeightMap{bytesMap: &bytesMap{mappings: nil}}
+	}
 
-// func (index *TableIndex) MarshalBinary(ctx context.Context, tablet Tablet) ([]byte, error) {
-// 	ctx, span := dtracing.StartSpan(ctx, "marshal table index to binary", "tablet", tablet)
-// 	defer span.End()
+	return newIndexSingletEntry(s, index), nil
+}
 
-// 	primaryKeyByteCount := tablet.PrimaryKeyByteCount()
-// 	entryByteCount := primaryKeyByteCount + 8 // Byte count for primary key + 8 bytes for block num value
+func (s indexSinglet) String() string {
+	return indexSingletCollectionName + ":" + s.tabletKey.String()
+}
 
-// 	snapshot := make([]byte, entryByteCount*len(index.Map)+16)
-// 	bigEndian.PutUint64(snapshot, index.Squelched)
+type indexSingletEntry struct {
+	BaseSingletEntry
+	index *TabletIndex
+}
 
-// 	pos := 16
-// 	for primaryKey, height := range index.Map {
-// 		err := tablet.EncodePrimaryKey(snapshot[pos:], primaryKey)
-// 		if err != nil {
-// 			return nil, fmt.Errorf("unable to read primary key for tablet %q: %w", tablet, err)
-// 		}
+func newIndexSingletEntry(singlet indexSinglet, index *TabletIndex) indexSingletEntry {
+	return indexSingletEntry{
+		BaseSingletEntry: NewBaseSingletEntry(singlet, index.AtHeight, false),
+		index:            index,
+	}
+}
 
-// 		bigEndian.PutUint64(snapshot[pos+primaryKeyByteCount:], height)
-// 		pos += entryByteCount
-// 	}
+func (s indexSingletEntry) MarshalValue() ([]byte, error) {
+	out := &pbfluxdb.TabletIndex{
+		SquelchedCount: s.index.SquelchCount,
+		Entries:        make([]*pbfluxdb.TabletIndexEntry, s.index.PrimaryKeyToHeight.len()),
+	}
 
-// 	return snapshot, nil
-// }
+	i := 0
+	for primaryKey, height := range s.index.PrimaryKeyToHeight.mappings {
+		out.Entries[i] = &pbfluxdb.TabletIndexEntry{PrimaryKey: []byte(primaryKey), Height: height.(uint64)}
+		i++
+	}
 
-// func (index *TableIndex) String() string {
-// 	builder := &strings.Builder{}
-// 	fmt.Fprintln(builder, "INDEX:")
+	value, err := proto.Marshal(out)
+	if err != nil {
+		return nil, fmt.Errorf("marshal index: %w", err)
+	}
 
-// 	fmt.Fprintln(builder, "  * At block num:", index.AtHeight)
-// 	fmt.Fprintln(builder, "  * Squelches:", index.Squelched)
-// 	var keys []string
-// 	for primKey := range index.Map {
-// 		keys = append(keys, primKey)
-// 	}
+	return value, nil
+}
 
-// 	sort.Strings(keys)
+type primaryKeyToHeightMap struct {
+	*bytesMap
+}
 
-// 	fmt.Fprintln(builder, "Snapshot (primkey -> height)")
-// 	for _, k := range keys {
-// 		fmt.Fprintf(builder, "  %s -> %d\n", k, index.Map[k])
-// 	}
+func newPrimaryKeyToHeightMap(length int) *primaryKeyToHeightMap {
+	return &primaryKeyToHeightMap{
+		bytesMap: &bytesMap{
+			mappings: make(map[string]interface{}, length),
+		},
+	}
+}
 
-// 	return builder.String()
-// }
+func (m *primaryKeyToHeightMap) put(k []byte, v uint64) { m._put(k, v) }
+func (m *primaryKeyToHeightMap) get(k []byte) (uint64, bool) {
+	v, f := m._get(k)
+	return v.(uint64), f
+}
 
-// type indexPrimaryKeyReader = func(buffer []byte) (string, error)
-// type indexPrimaryKeyWriter = func(primaryKey string, buffer []byte) error
+func (m *primaryKeyToHeightMap) delete(k []byte) {
+	m.bytesMap.delete(k)
+}
 
-// func twoUint64PrimaryKeyReaderFactory(tag string) indexPrimaryKeyReader {
-// 	return func(buffer []byte) (string, error) {
-// 		if len(buffer) < 16 {
-// 			return "", fmt.Errorf("%s primary key reader: not enough bytes to read, %d bytes left, wants %d", tag, len(buffer), 16)
-// 		}
+func (m *primaryKeyToHeightMap) rowKeys(tablet Tablet, height uint64) (keys [][]byte) {
+	keys = make([][]byte, m.len())
 
-// 		chunk1, err := readOneUint64(buffer)
-// 		if err != nil {
-// 			return "", fmt.Errorf("%s primary key reader, chunk #1: %w", tag, err)
-// 		}
+	i := 0
+	for primaryKey, height := range m.mappings {
+		keys[i] = KeyForTabletRowParts(tablet, height.(uint64), []byte(primaryKey))
+		i++
+	}
 
-// 		chunk2, err := readOneUint64(buffer[8:])
-// 		if err != nil {
-// 			return "", fmt.Errorf("%s primary key reader, chunk #2: %w", tag, err)
-// 		}
-
-// 		return strings.Join([]string{chunk1, chunk2}, ":"), nil
-// 	}
-// }
-
-// func readOneUint64(buffer []byte) (string, error) {
-// 	if len(buffer) < 8 {
-// 		return "", fmt.Errorf("not enough bytes to read uint64, %d bytes left, wants %d", len(buffer), 8)
-// 	}
-
-// 	return fmt.Sprintf("%016x", bigEndian.Uint64(buffer)), nil
-// }
-
-// func twoUint64PrimaryKeyWriterFactory(tag string) indexPrimaryKeyWriter {
-// 	return func(primaryKey string, buffer []byte) error {
-
-// 		chunks := strings.Split(primaryKey, ":")
-// 		if len(chunks) != 2 {
-// 			return fmt.Errorf("%s primary key should have 2 chunks, got %d", tag, len(chunks))
-// 		}
-
-// 		err := writeOneUint64(chunks[0], buffer)
-// 		if err != nil {
-// 			return fmt.Errorf("%s primary key writer, chunk #1: %w", tag, err)
-// 		}
-
-// 		err = writeOneUint64(chunks[1], buffer[8:])
-// 		if err != nil {
-// 			return fmt.Errorf("%s primary key writer, chunk #2: %w", tag, err)
-// 		}
-
-// 		return nil
-// 	}
-// }
-
-// func writeOneUint64(primaryKey string, buffer []byte) error {
-// 	value, err := strconv.ParseUint(primaryKey, 16, 64)
-// 	if err != nil {
-// 		return fmt.Errorf("unable to transform primary key to uint64: %w", err)
-// 	}
-
-// 	bigEndian.PutUint64(buffer, value)
-// 	return nil
-// }
+	return
+}

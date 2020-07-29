@@ -26,25 +26,105 @@ import (
 	"go.opencensus.io/trace"
 )
 
-func TestReadWithSpeculative(t *testing.T) {
+func TestReadTabletAt_WithSpeculative(t *testing.T) {
 	db, closer := NewTestDB(t)
 	defer closer()
 
 	height := uint64(123)
-	tablet := newTestTablet("table")
+	tablet := newTestTablet("tbl")
 
 	writeBatchOfRequests(t, db,
-		&WriteRequest{TabletRows: []TabletRow{tablet.newRow(t, height, "0000000000000002", []byte{0x01}, false)}},
+		&WriteRequest{TabletRows: []TabletRow{tablet.row(t, height, "002", "abc")}},
 	)
 
 	speculativeWrites := []*WriteRequest{
-		tabletRows(height, tablet.newRow(t, height+1, "0000000000000002", nil, true)),
+		tabletRows(height, tablet.row(t, height+1, "002", "")),
 	}
 
-	rows, err := db.ReadTabletAt(context.Background(), 124, tablet, speculativeWrites)
+	rows, err := db.ReadTabletAt(context.Background(), height+1, tablet, speculativeWrites)
 
 	require.NoError(t, err)
 	require.Len(t, rows, 0)
+}
+
+func TestReadTabletAt_WithIndex(t *testing.T) {
+	db, closer := NewTestDB(t)
+	defer closer()
+
+	height := uint64(123)
+	tablet := newTestTablet("tbl")
+	index := NewTabletIndex()
+	index.AtHeight = height
+	index.SquelchCount = 1
+	index.PrimaryKeyToHeight.put([]byte("002"), height)
+
+	writeBatchOfRequests(t, db,
+		&WriteRequest{TabletRows: []TabletRow{tablet.row(t, height, "002", "abc")}},
+		&WriteRequest{SingletEntries: []SingletEntry{newIndexSingletEntry(newIndexSinglet(tablet), index)}},
+	)
+
+	rows, err := db.ReadTabletAt(context.Background(), height+1, tablet, nil)
+
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.Equal(t, tablet.row(t, height, "002", "abc"), rows[0])
+}
+
+func TestReadTabletAt_IndexThenDeleted(t *testing.T) {
+	db, closer := NewTestDB(t)
+	defer closer()
+
+	height := uint64(123)
+	tablet := newTestTablet("tbl")
+	index := NewTabletIndex()
+	index.AtHeight = height
+	index.SquelchCount = 1
+	index.PrimaryKeyToHeight.put([]byte("002"), height)
+
+	writeBatchOfRequests(t, db,
+		&WriteRequest{TabletRows: []TabletRow{tablet.row(t, height, "002", "abc")}},
+		&WriteRequest{SingletEntries: []SingletEntry{newIndexSingletEntry(newIndexSinglet(tablet), index)}},
+	)
+
+	writeBatchOfRequests(t, db,
+		&WriteRequest{TabletRows: []TabletRow{tablet.row(t, height+1, "002", "")}},
+	)
+
+	rows, err := db.ReadTabletAt(context.Background(), height+2, tablet, nil)
+
+	require.NoError(t, err)
+	require.Len(t, rows, 0)
+}
+
+func TestReadTabletAt_IndexThenDeletedThenSpeculativeInserted(t *testing.T) {
+	db, closer := NewTestDB(t)
+	defer closer()
+
+	height := uint64(123)
+	tablet := newTestTablet("tbl")
+	index := NewTabletIndex()
+	index.AtHeight = height
+	index.SquelchCount = 1
+	index.PrimaryKeyToHeight.put([]byte("002"), height)
+
+	writeBatchOfRequests(t, db,
+		&WriteRequest{TabletRows: []TabletRow{tablet.row(t, height, "002", "abc")}},
+		&WriteRequest{SingletEntries: []SingletEntry{newIndexSingletEntry(newIndexSinglet(tablet), index)}},
+	)
+
+	writeBatchOfRequests(t, db,
+		&WriteRequest{TabletRows: []TabletRow{tablet.row(t, height+1, "002", "")}},
+	)
+
+	speculativeWrites := []*WriteRequest{
+		tabletRows(height, tablet.row(t, height+2, "002", "def")),
+	}
+
+	rows, err := db.ReadTabletAt(context.Background(), height+2, tablet, speculativeWrites)
+
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.Equal(t, tablet.row(t, height+2, "002", "def"), rows[0])
 }
 
 func TestReadSingletAt(t *testing.T) {
@@ -110,10 +190,10 @@ func TestReadSingletAt(t *testing.T) {
 			db, closer := NewTestDB(t)
 			defer closer()
 
-			singlet := newTestSinglet("test")
+			singlet := newTestSinglet("tst")
 			for _, height := range test.entries {
 				writeBatchOfRequests(t, db,
-					&WriteRequest{SingletEntries: []SingletEntry{singlet.newEntry(t, height, []byte(fmt.Sprintf("%d", height)), false)}},
+					&WriteRequest{SingletEntries: []SingletEntry{singlet.entry(t, height, fmt.Sprintf("%d", height))}},
 				)
 			}
 
@@ -123,7 +203,7 @@ func TestReadSingletAt(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				require.NotNil(t, entry, "entry is nil")
-				assert.Equal(t, test.expectedEntry, string(entry.(*testEntry).Payload))
+				assert.Equal(t, test.expectedEntry, entry.(testSingletEntry).data)
 			}
 		})
 	}

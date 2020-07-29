@@ -84,7 +84,7 @@ func (s *Sharder) ProcessBlock(rawBlk *bstream.Block, rawObj interface{}) error 
 	// Compute the N shard write requests, 1 write request per shard, the slice index is the shard index
 	shardedRequests := make([]*WriteRequest, s.shardCount)
 	for _, entry := range unshardedRequest.SingletEntries {
-		shardIndex := s.goesToShard(entry.Key())
+		shardIndex := s.goesToShard(KeyForSinglet(entry.Singlet()))
 
 		var shardedRequest *WriteRequest
 		if shardedRequest = shardedRequests[shardIndex]; shardedRequest == nil {
@@ -96,7 +96,7 @@ func (s *Sharder) ProcessBlock(rawBlk *bstream.Block, rawObj interface{}) error 
 	}
 
 	for _, row := range unshardedRequest.TabletRows {
-		shardIndex := s.goesToShard(row.Key())
+		shardIndex := s.goesToShard(KeyForTablet(row.Tablet()))
 
 		var shardedRequest *WriteRequest
 		if shardedRequest = shardedRequests[shardIndex]; shardedRequest == nil {
@@ -127,8 +127,8 @@ func (s *Sharder) ProcessBlock(rawBlk *bstream.Block, rawObj interface{}) error 
 
 var emptyHashKey [32]byte
 
-func (s *Sharder) goesToShard(key string) int {
-	bigInt := highwayhash.Sum64([]byte(key), emptyHashKey[:])
+func (s *Sharder) goesToShard(key []byte) int {
+	bigInt := highwayhash.Sum64(key, emptyHashKey[:])
 	elementShard := bigInt % uint64(s.shardCount)
 	return int(elementShard)
 }

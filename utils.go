@@ -29,6 +29,18 @@ func HexRevHeight(height uint64) string {
 	return HexHeight(math.MaxUint64 - height)
 }
 
+func copyCollection(dst []byte, collection uint16) {
+	bigEndian.PutUint16(dst, collection)
+}
+
+func copyHeight(dst []byte, height uint64) {
+	bigEndian.PutUint64(dst, height)
+}
+
+func copyRevHeight(dst []byte, height uint64) {
+	copyHeight(dst, math.MaxUint64-height)
+}
+
 // chunkKeyRevHeight returns the actual block num out of a
 // reverse-encoded block num
 func chunkKeyRevHeight(key string, prefixKey string) (height uint64, err error) {

@@ -14,4 +14,4 @@
 
 package fluxdb
 
-const lastCheckpointRowKey = "checkpoint"
+var lastCheckpointRowKey = []byte("checkpoint")

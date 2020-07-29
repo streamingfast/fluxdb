@@ -15,9 +15,9 @@
 package fluxdb
 
 import (
+	"bytes"
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/dfuse-io/dtracing"
 	"github.com/dfuse-io/fluxdb/store"
@@ -64,14 +64,14 @@ func (fdb *FluxDB) WriteBatch(ctx context.Context, w []*WriteRequest) error {
 
 func (fdb *FluxDB) VerifyAllShardsWritten(ctx context.Context) (string, error) {
 	seen := make(map[string]string)
-	if err := fdb.store.ScanLastShardsWrittenCheckpoint(ctx, "shard-", func(key string, value []byte) error {
+	if err := fdb.store.ScanLastShardsWrittenCheckpoint(ctx, []byte("shard-"), func(key []byte, value []byte) error {
 		// FIXME (height): Will need to revisit that part if we start to migrate to a "height" fluxdb system
 		_, block, err := unmarshalCheckpoint(value)
 		if err != nil {
 			return fmt.Errorf("unable to unmarshal checkpoint: %w", err)
 		}
 
-		seen[strings.TrimPrefix(key, "shard-")] = block.ID()
+		seen[string(bytes.TrimPrefix(key, []byte("shard-")))] = block.ID()
 		return nil
 	}); err != nil {
 		return "", err
@@ -125,20 +125,26 @@ func (fdb *FluxDB) UpdateGlobalLastBlockID(ctx context.Context, blockID string) 
 func (fdb *FluxDB) writeBlock(ctx context.Context, batch store.Batch, w *WriteRequest) (err error) {
 	for _, entry := range w.SingletEntries {
 		var value []byte
-		if !isDeletionEntry(entry) {
-			value = entry.Value()
+		if !entry.IsDeletion() {
+			value, err = entry.MarshalValue()
+			if err != nil {
+				return fmt.Errorf("singlet to proto: %w", err)
+			}
 		}
 
-		batch.SetRow(string(entry.Key()), value)
+		batch.SetRow(KeyForSingletEntry(entry), value)
 	}
 
 	for _, row := range w.TabletRows {
 		var value []byte
-		if !isDeletionRow(row) {
-			value = row.Value()
+		if !row.IsDeletion() {
+			value, err = row.MarshalValue()
+			if err != nil {
+				return fmt.Errorf("tablet to proto: %w", err)
+			}
 		}
 
-		batch.SetRow(string(row.Key()), value)
+		batch.SetRow(KeyForTabletRow(row), value)
 
 		tablet := row.Tablet()
 		fdb.idxCache.IncCount(tablet)

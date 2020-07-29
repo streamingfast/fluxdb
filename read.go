@@ -15,6 +15,7 @@
 package fluxdb
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -42,11 +43,11 @@ func (fdb *FluxDB) ReadTabletAt(
 	zlogger := logging.Logger(ctx, zlog)
 	zlogger.Debug("reading tablet", zap.Stringer("tablet", tablet), zap.Uint64("height", height))
 
-	startKey := tablet.KeyAt(0)
-	endKey := tablet.KeyAt(height + 1)
-	rowByPrimaryKey := map[string]TabletRow{}
+	startKey := KeyForTabletAt(tablet, 0)
+	endKey := KeyForTabletAt(tablet, height+1)
+	rowByPrimaryKey := newPrimaryKeyToTabletRowMap(8)
 
-	idx, err := fdb.getIndex(ctx, height, tablet)
+	idx, err := fdb.getIndex(ctx, tablet, height)
 	if err != nil {
 		return nil, fmt.Errorf("fetch tablet index: %w", err)
 	}
@@ -54,17 +55,11 @@ func (fdb *FluxDB) ReadTabletAt(
 	if idx != nil {
 		idxRowCount := idx.RowCount()
 		zlogger.Debug("tablet index exists, reconciling it", zap.Uint64("row_count", idxRowCount))
-		startKey = tablet.KeyAt(idx.AtHeight + 1)
+		startKey = KeyForTabletAt(tablet, idx.AtHeight+1)
 
-		// Let's pre-allocated `rowByPrimaryKey` and `keys`, `rows` is likely to need at least as much rows as in the index itself
-		rowByPrimaryKey = make(map[string]TabletRow, idxRowCount)
-		keys := make([]string, idxRowCount)
-
-		i := 0
-		for primaryKey, height := range idx.PrimaryKeyToHeight {
-			keys[i] = string(tablet.KeyForRowAt(height, primaryKey))
-			i++
-		}
+		// Let's pre-allocated `rowByPrimaryKey`, it's likely to need at least as much rows as in the index itself
+		rowByPrimaryKey = newPrimaryKeyToTabletRowMap(int(idxRowCount))
+		keys := idx.PrimaryKeyToHeight.rowKeys(tablet, height)
 
 		// Fetch all rows in the index.. could be millions
 		// We need to batch so that the RowList, when serialized, doesn't blow up 1MB
@@ -85,17 +80,17 @@ func (fdb *FluxDB) ReadTabletAt(
 			zlogger.Debug("reading tablet index rows chunk", zap.Int("chunk_index", i), zap.Int("key_count", len(keysChunk)))
 
 			keyRead := false
-			err := fdb.store.FetchTabletRows(ctx, keysChunk, func(key string, value []byte) error {
+			err := fdb.store.FetchTabletRows(ctx, keysChunk, func(key []byte, value []byte) error {
 				if len(value) == 0 {
-					return fmt.Errorf("indexes mappings should not contain empty data, empty rows don't make sense in a tablet index, row %s", key)
+					return fmt.Errorf("indexes mappings should not contain empty data, empty rows don't make sense in a tablet index, row %q", Key(key))
 				}
 
-				row, err := tablet.NewRowFromKV(key, value)
+				row, err := NewTabletRow(tablet, key, value)
 				if err != nil {
-					return fmt.Errorf("tablet index new row %s: %w", key, err)
+					return fmt.Errorf("tablet index new row %q: %w", Key(key), err)
 				}
 
-				rowByPrimaryKey[string(row.PrimaryKey())] = row
+				rowByPrimaryKey.put(row.PrimaryKey(), row)
 
 				keyRead = true
 				return nil
@@ -114,31 +109,30 @@ func (fdb *FluxDB) ReadTabletAt(
 	}
 
 	zlogger.Debug("reading tablet rows from database",
-		zap.Int("row_count", len(rowByPrimaryKey)),
 		zap.Bool("index_found", idx != nil),
 		zap.Uint64("index_row_count", idx.RowCount()),
-		zap.String("start_key", startKey),
-		zap.String("end_key", endKey),
+		zap.Stringer("start_key", startKey),
+		zap.Stringer("end_key", endKey),
 	)
 
 	deletedCount := 0
 	updatedCount := 0
 
-	err = fdb.store.ScanTabletRows(ctx, startKey, endKey, func(key string, value []byte) error {
-		row, err := tablet.NewRowFromKV(key, value)
+	err = fdb.store.ScanTabletRows(ctx, startKey, endKey, func(key []byte, value []byte) error {
+		row, err := NewTabletRow(tablet, key, value)
 		if err != nil {
-			return fmt.Errorf("tablet new row %s: %w", key, err)
+			return fmt.Errorf("tablet new row %q: %w", Key(key), err)
 		}
 
-		if isDeletionRow(row) {
+		if row.IsDeletion() {
 			deletedCount++
-			delete(rowByPrimaryKey, string(row.PrimaryKey()))
+			rowByPrimaryKey.delete(row.PrimaryKey())
 
 			return nil
 		}
 
 		updatedCount++
-		rowByPrimaryKey[string(row.PrimaryKey())] = row
+		rowByPrimaryKey.put(row.PrimaryKey(), row)
 
 		return nil
 	})
@@ -148,34 +142,32 @@ func (fdb *FluxDB) ReadTabletAt(
 	}
 
 	zlogger.Debug("reading tablet rows from speculative writes",
-		zap.Int("row_count", len(rowByPrimaryKey)),
+		zap.Int("db_row_count", rowByPrimaryKey.len()),
+		zap.Int("deleted_count", deletedCount),
+		zap.Int("updated_count", updatedCount),
 		zap.Int("speculative_write_count", len(speculativeWrites)),
 	)
 
 	for _, speculativeWrite := range speculativeWrites {
 		for _, speculativeRow := range speculativeWrite.TabletRows {
-			if speculativeRow.Tablet() != tablet {
+			if !TabletEqual(tablet, speculativeRow.Tablet()) {
 				continue
 			}
 
-			if isDeletionRow(speculativeRow) {
-				delete(rowByPrimaryKey, string(speculativeRow.PrimaryKey()))
+			if speculativeRow.IsDeletion() {
+				deletedCount++
+				rowByPrimaryKey.delete(speculativeRow.PrimaryKey())
 			} else {
-				rowByPrimaryKey[string(speculativeRow.PrimaryKey())] = speculativeRow
+				updatedCount++
+				rowByPrimaryKey.put(speculativeRow.PrimaryKey(), speculativeRow)
 			}
 		}
 	}
 
-	zlogger.Debug("post-processing tablet rows", zap.Int("row_count", len(rowByPrimaryKey)))
+	zlogger.Debug("post-processing tablet rows", zap.Int("row_count", rowByPrimaryKey.len()))
 
-	i := 0
-	rows := make([]TabletRow, len(rowByPrimaryKey))
-	for _, row := range rowByPrimaryKey {
-		rows[i] = row
-		i++
-	}
-
-	sort.Slice(rows, func(i, j int) bool { return string(rows[i].PrimaryKey()) < string(rows[j].PrimaryKey()) })
+	rows := rowByPrimaryKey.values()
+	sort.Slice(rows, func(i, j int) bool { return bytes.Compare(rows[i].PrimaryKey(), rows[j].PrimaryKey()) < 0 })
 
 	zlogger.Info("finished reading tablet rows", zap.Int("deleted_count", deletedCount), zap.Int("updated_count", updatedCount))
 	return rows, nil
@@ -184,46 +176,44 @@ func (fdb *FluxDB) ReadTabletAt(
 func (fdb *FluxDB) ReadTabletRowAt(
 	ctx context.Context,
 	height uint64,
-	tablet Tablet,
-	primaryKey string,
+	tabletRow TabletRow,
 	speculativeWrites []*WriteRequest,
 ) (TabletRow, error) {
+	tablet := tabletRow.Tablet()
+	primaryKey := tabletRow.PrimaryKey()
+
 	ctx, span := dtracing.StartSpan(ctx, "read tablet row", "tablet", tablet, "height", height)
 	defer span.End()
 
 	zlogger := logging.Logger(ctx, zlog)
-	zlogger.Debug("reading tablet row",
-		zap.Stringer("tablet", tablet),
-		zap.Uint64("height", height),
-		zap.String("primary_key", primaryKey),
-	)
+	zlogger.Debug("reading tablet row", zap.Stringer("row", tabletRow), zap.Uint64("height", height))
 
-	idx, err := fdb.getIndex(ctx, height, tablet)
+	idx, err := fdb.getIndex(ctx, tablet, height)
 	if err != nil {
 		return nil, fmt.Errorf("fetch tablet index: %w", err)
 	}
 
-	startKey := tablet.KeyAt(0)
-	endKey := tablet.KeyAt(height + 1)
+	startKey := KeyForTabletAt(tablet, 0)
+	endKey := KeyForTabletAt(tablet, height+1)
 	var row TabletRow
 	if idx != nil {
 		idxRowCount := idx.RowCount()
 		zlogger.Debug("tablet index exists, reconciling it", zap.Uint64("row_count", idxRowCount))
-		startKey = tablet.KeyAt(idx.AtHeight + 1)
+		startKey = KeyForTabletAt(tablet, idx.AtHeight+1)
 
-		if height, ok := idx.PrimaryKeyToHeight[primaryKey]; ok {
-			rowKey := string(tablet.KeyForRowAt(height, primaryKey))
-			zlogger.Debug("reading index row", zap.String("row_key", rowKey))
+		if height, ok := idx.PrimaryKeyToHeight.get(tabletRow.PrimaryKey()); ok {
+			rowKey := KeyForTabletRowParts(tablet, height, primaryKey)
+			zlogger.Debug("reading index row", zap.Stringer("row_key", rowKey))
 
 			value, err := fdb.store.FetchTabletRow(ctx, rowKey)
 			if errors.Is(err, store.ErrNotFound) {
-				return nil, fmt.Errorf("indexes mappings should not contain empty data, empty rows don't make sense in an index, row %s", rowKey)
+				return nil, fmt.Errorf("indexes mappings should not contain empty data, empty rows don't make sense in an index, row %q", rowKey)
 			}
 			if err != nil {
 				return nil, fmt.Errorf("reading tablet index row %q: %w", rowKey, err)
 			}
 			if len(value) <= 0 {
-				row, err = tablet.NewRowFromKV(rowKey, value)
+				row, err = tablet.Row(height, primaryKey, value)
 				if err != nil {
 					return nil, fmt.Errorf("could not create table from key value with row key %q: %w", rowKey, err)
 				}
@@ -236,24 +226,24 @@ func (fdb *FluxDB) ReadTabletRowAt(
 	zlogger.Debug("reading tablet row from database",
 		zap.Bool("row_exist", row != nil),
 		zap.Bool("index_found", idx != nil),
-		zap.String("start_key", startKey),
-		zap.String("end_key", endKey),
+		zap.Stringer("start_key", startKey),
+		zap.Stringer("end_key", endKey),
 	)
 
 	deletedCount := 0
 	updatedCount := 0
 
-	err = fdb.store.ScanTabletRows(ctx, startKey, endKey, func(key string, value []byte) error {
-		candidateRow, err := tablet.NewRowFromKV(key, value)
+	err = fdb.store.ScanTabletRows(ctx, startKey, endKey, func(key []byte, value []byte) error {
+		candidateRow, err := NewTabletRow(tablet, key, value)
 		if err != nil {
-			return fmt.Errorf("tablet new row %s: %w", key, err)
+			return fmt.Errorf("tablet new row %q: %w", Key(key), err)
 		}
 
-		if candidateRow.PrimaryKey() != primaryKey {
+		if !bytes.Equal(primaryKey, candidateRow.PrimaryKey()) {
 			return nil
 		}
 
-		if isDeletionRow(candidateRow) {
+		if candidateRow.IsDeletion() {
 			row = nil
 			deletedCount++
 
@@ -276,15 +266,15 @@ func (fdb *FluxDB) ReadTabletRowAt(
 
 	for _, speculativeWrite := range speculativeWrites {
 		for _, speculativeRow := range speculativeWrite.TabletRows {
-			if speculativeRow.Tablet() != tablet {
+			if !TabletEqual(tablet, speculativeRow.Tablet()) {
 				continue
 			}
 
-			if speculativeRow.PrimaryKey() != primaryKey {
+			if bytes.Equal(primaryKey, speculativeRow.PrimaryKey()) {
 				continue
 			}
 
-			if isDeletionRow(speculativeRow) {
+			if speculativeRow.IsDeletion() {
 				deletedCount++
 				row = nil
 			} else {
@@ -294,14 +284,12 @@ func (fdb *FluxDB) ReadTabletRowAt(
 		}
 	}
 
-	zlogger.Info("finished reading tablet row",
-		zap.Int("deleted_count", deletedCount),
-		zap.Int("updated_count", updatedCount),
-		zap.String("primary_key", primaryKey),
-	)
+	zlogger.Info("finished reading tablet row", zap.Int("deleted_count", deletedCount), zap.Int("updated_count", updatedCount))
 	return row, nil
 }
 
+// ReadSingletEntryAt query the storage engine returning the active singlet entry
+// value at specified height.
 func (fdb *FluxDB) ReadSingletEntryAt(
 	ctx context.Context,
 	singlet Singlet,
@@ -312,11 +300,11 @@ func (fdb *FluxDB) ReadSingletEntryAt(
 	defer span.End()
 
 	// We are using inverted block num, so we are scanning from highest block num (request block num) to lowest block (0)
-	startKey := singlet.KeyAt(height)
-	endKey := singlet.KeyAt(0)
+	startKey := KeyForSingletAt(singlet, height)
+	endKey := KeyForSingletAt(singlet, 0)
 
 	zlog := logging.Logger(ctx, zlog)
-	zlog.Debug("reading singlet entry from database", zap.Stringer("singlet", singlet), zap.Uint64("height", height), zap.String("start_key", startKey), zap.String("end_key", endKey))
+	zlog.Debug("reading singlet entry from database", zap.Stringer("singlet", singlet), zap.Uint64("height", height), zap.Stringer("start_key", startKey), zap.Stringer("end_key", endKey))
 
 	var entry SingletEntry
 	key, value, err := fdb.store.FetchSingletEntry(ctx, startKey, endKey)
@@ -324,22 +312,22 @@ func (fdb *FluxDB) ReadSingletEntryAt(
 		return nil, fmt.Errorf("db fetch single entry: %w", err)
 	}
 
-	// If there is a key set (record found) and the value is non-nil (it's a deleted entry), then populated entry
-	if key != "" && len(value) > 0 {
-		entry, err = singlet.NewEntryFromKV(key, value)
+	// If there is a key set (record found) and the value is non-nil (it's NOT a deleted entry), then populated it
+	if len(key) > 0 && len(value) > 0 {
+		entry, err = NewSingletEntry(singlet, key, value)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create single tablet row %s: %w", key, err)
+			return nil, fmt.Errorf("failed to create single tablet row %q: %w", Key(key), err)
 		}
 	}
 
 	zlog.Debug("reading singlet entry from speculative writes", zap.Bool("db_exist", entry != nil), zap.Int("speculative_write_count", len(speculativeWrites)))
 	for _, writeRequest := range speculativeWrites {
 		for _, speculativeEntry := range writeRequest.SingletEntries {
-			if entry.Singlet() != singlet {
+			if SingletEqual(singlet, entry.Singlet()) {
 				continue
 			}
 
-			if isDeletionEntry(speculativeEntry) {
+			if speculativeEntry.IsDeletion() {
 				entry = nil
 			} else {
 				entry = speculativeEntry
@@ -355,7 +343,7 @@ func (fdb *FluxDB) HasSeenAnyRowForTablet(ctx context.Context, tablet Tablet) (e
 	ctx, span := dtracing.StartSpan(ctx, "has seen tablet row", "tablet", tablet.String())
 	defer span.End()
 
-	return fdb.store.HasTabletRow(ctx, tablet.Key())
+	return fdb.store.HasTabletRow(ctx, KeyForTablet(tablet))
 }
 
 func (fdb *FluxDB) FetchLastWrittenCheckpoint(ctx context.Context) (height uint64, block bstream.BlockRef, err error) {
@@ -395,9 +383,9 @@ func (fdb *FluxDB) CheckCleanDBForSharding() error {
 	return errors.New("live injector's marker of last written block present, expected no element to exist")
 }
 
-func (fdb *FluxDB) lastCheckpointKey() string {
+func (fdb *FluxDB) lastCheckpointKey() []byte {
 	if fdb.IsSharding() {
-		return fmt.Sprintf("shard-%03d", fdb.shardIndex)
+		return []byte(fmt.Sprintf("shard-%03d", fdb.shardIndex))
 	}
 
 	return lastCheckpointRowKey

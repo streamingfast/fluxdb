@@ -22,7 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestTabletIndex_MarshalUnmarshalBinary(t *testing.T) {
+func TestIndexSinglet_MarshalUnmarshalBinary(t *testing.T) {
 	tests := []struct {
 		name   string
 		tablet Tablet
@@ -34,7 +34,7 @@ func TestTabletIndex_MarshalUnmarshalBinary(t *testing.T) {
 			&TabletIndex{
 				AtHeight:           6,
 				SquelchCount:       2,
-				PrimaryKeyToHeight: nil,
+				PrimaryKeyToHeight: &primaryKeyToHeightMap{bytesMap: &bytesMap{}},
 			},
 		},
 		{
@@ -43,28 +43,33 @@ func TestTabletIndex_MarshalUnmarshalBinary(t *testing.T) {
 			&TabletIndex{
 				AtHeight:     6,
 				SquelchCount: 2,
-				PrimaryKeyToHeight: map[string]uint64{
-					"0000000000000002": 4,
-					"0000000000000003": 5,
-				},
+				PrimaryKeyToHeight: &primaryKeyToHeightMap{bytesMap: &bytesMap{
+					mappings: map[string]interface{}{
+						"0000000000000002": uint64(4),
+						"0000000000000003": uint64(5),
+					},
+				}},
 			},
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			tablet := test.tablet
-			mapper := tablet.IndexMapper()
 			index := test.index
+			singlet := newIndexSinglet(test.tablet)
 
-			binary, err := mapper.EncodeIndex(index.SquelchCount, index.PrimaryKeyToHeight)
+			entry := newIndexSingletEntry(singlet, test.index)
+
+			binary, err := entry.MarshalValue()
 			require.NoError(t, err)
 
-			squelchCount, primaryKeyToHeight, err := mapper.DecodeIndex(binary)
+			newEntry, err := singlet.Entry(test.index.AtHeight, binary)
 			require.NoError(t, err)
 
-			assert.Equal(t, index.SquelchCount, squelchCount)
-			assert.Equal(t, index.PrimaryKeyToHeight, primaryKeyToHeight)
+			actual := newEntry.(indexSingletEntry).index
+
+			assert.Equal(t, index.SquelchCount, actual.SquelchCount)
+			assert.Equal(t, index.PrimaryKeyToHeight.mappings, actual.PrimaryKeyToHeight.mappings)
 		})
 	}
 }
@@ -139,9 +144,9 @@ func TestShouldTriggerIndexing(t *testing.T) {
 			}
 			cache.lastCounters[tablet] = test.mutationsCount
 			if test.indexRowCount != 0 {
-				t := &TabletIndex{PrimaryKeyToHeight: make(map[string]uint64)}
+				t := &TabletIndex{PrimaryKeyToHeight: newPrimaryKeyToHeightMap(8)}
 				for i := 0; i < test.indexRowCount; i++ {
-					t.PrimaryKeyToHeight[fmt.Sprintf("%016x", i)] = 0
+					t.PrimaryKeyToHeight.put([]byte(fmt.Sprintf("%016x", i)), 0)
 				}
 				cache.lastIndexes[tablet] = t
 			}

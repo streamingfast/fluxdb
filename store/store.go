@@ -16,6 +16,7 @@ package store
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 
 	"go.uber.org/zap"
@@ -26,6 +27,12 @@ var BreakScan = errors.New("break scan")
 
 var ErrNotFound = errors.New("not found")
 
+type Key []byte
+
+func (k Key) String() string {
+	return hex.EncodeToString(k)
+}
+
 type Batch interface {
 	Flush(ctx context.Context) error
 	FlushIfFull(ctx context.Context) error
@@ -33,14 +40,14 @@ type Batch interface {
 	// FIXME: Maybe the batch "adder/setter" should not event care about the key and compute
 	//        it straight? Since this is per storage engine, it would be a good place since
 	//        all saved element would pass through those methods...
-	SetRow(key string, value []byte)
-	SetLastCheckpoint(key string, value []byte)
-	SetIndex(key string, value []byte)
+	SetRow(key []byte, value []byte)
+	SetLastCheckpoint(key []byte, value []byte)
+	SetIndex(key []byte, value []byte)
 
 	Reset()
 }
 
-type OnKeyValue func(key string, value []byte) error
+type OnKeyValue func(key []byte, value []byte) error
 
 // KVStore represents the abstraction needed by FluxDB to correctly use different
 // underlying KV storage engine.
@@ -49,23 +56,23 @@ type KVStore interface {
 
 	NewBatch(logger *zap.Logger) Batch
 
-	FetchIndex(ctx context.Context, tableKey, prefixKey, keyStart string) (rowKey string, rawIndex []byte, err error)
+	FetchIndex(ctx context.Context, tableKey, prefixKey, keyStart []byte) (rowKey []byte, rawIndex []byte, err error)
 
-	HasTabletRow(ctx context.Context, tabletKey string) (exists bool, err error)
+	HasTabletRow(ctx context.Context, tabletKey []byte) (exists bool, err error)
 
-	FetchTabletRow(ctx context.Context, key string) (value []byte, err error)
+	FetchTabletRow(ctx context.Context, key []byte) (value []byte, err error)
 
-	FetchTabletRows(ctx context.Context, keys []string, onKeyValue OnKeyValue) error
+	FetchTabletRows(ctx context.Context, keys [][]byte, onKeyValue OnKeyValue) error
 
-	FetchSingletEntry(ctx context.Context, keyStart, keyEnd string) (key string, value []byte, err error)
+	FetchSingletEntry(ctx context.Context, keyStart, keyEnd []byte) (key []byte, value []byte, err error)
 
-	ScanTabletRows(ctx context.Context, keyStart, keyEnd string, onKeyValue OnKeyValue) error
+	ScanTabletRows(ctx context.Context, keyStart, keyEnd []byte, onKeyValue OnKeyValue) error
 
 	// FetchLastWrittenCheckpoint returns the latest written checkpoint reference that was correctly
 	// committed to the storage system.
 	//
 	// If nothing was ever written yet, this must return `nil, ErrNotFound`.
-	FetchLastWrittenCheckpoint(ctx context.Context, key string) (value []byte, err error)
+	FetchLastWrittenCheckpoint(ctx context.Context, key []byte) (value []byte, err error)
 
-	ScanLastShardsWrittenCheckpoint(ctx context.Context, keyPrefix string, onKeyValue OnKeyValue) error
+	ScanLastShardsWrittenCheckpoint(ctx context.Context, keyPrefix []byte, onKeyValue OnKeyValue) error
 }
