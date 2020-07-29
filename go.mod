@@ -11,7 +11,7 @@ require (
 	github.com/dfuse-io/dtracing v0.0.0-20200417133307-c09302668d0c
 	github.com/dfuse-io/kvdb v0.0.0-20200619171121-937464bfbae5
 	github.com/dfuse-io/logging v0.0.0-20200417143534-5e26069a5e39
-	github.com/dfuse-io/pbgo v0.0.6-0.20200724202202-217fed79b29b
+	github.com/dfuse-io/pbgo v0.0.6-0.20200729035815-5da1dbc5e2ac
 	github.com/dfuse-io/shutter v1.4.1-0.20200407040739-f908f9ab727f
 	github.com/golang/protobuf v1.4.2
 	github.com/gorilla/mux v1.7.3 // indirect
@@ -31,4 +31,3 @@ go 1.13
 // This is required to fix build where 0.1.0 version is not considered a valid version because a v0 line does not exists
 // We replace with same commit, simply tricking go and tell him that's it's actually version 0.0.3
 replace github.com/census-instrumentation/opencensus-proto v0.1.0-0.20181214143942-ba49f56771b8 => github.com/census-instrumentation/opencensus-proto v0.0.3-0.20181214143942-ba49f56771b8
-replace github.com/dfuse-io/pbgo => /Users/maoueh/work/dfuse/pbgo
