@@ -15,7 +15,6 @@
 package kv
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -29,15 +28,13 @@ import (
 )
 
 var TblPrefixName = map[byte]string{
-	TblPrefixRows:           "tablet",
-	TblPrefixIndex:          "index",
+	TblPrefixRows:           "rows",
 	TblPrefixLastCheckpoint: "checkpoint",
 }
 
 const (
 	TblPrefixRows           = 0x00
-	TblPrefixIndex          = 0x01
-	TblPrefixLastCheckpoint = 0x03
+	TblPrefixLastCheckpoint = 0x01
 )
 
 var TableMapper = map[byte]string{}
@@ -83,30 +80,6 @@ func (s *KVStore) FetchSingletEntry(ctx context.Context, keyStart, keyEnd []byte
 	}
 
 	return key, value, nil
-}
-
-func (s *KVStore) FetchIndex(ctx context.Context, tableKey, prefixKey, keyStart []byte) (rowKey []byte, rawIndex []byte, err error) {
-	err = s.scanInfiniteRange(ctx, TblPrefixIndex, keyStart, 1, func(key []byte, value []byte) error {
-		if !bytes.HasPrefix(key, prefixKey) {
-			return store.BreakScan
-		}
-
-		rowKey = key
-		rawIndex = value
-
-		// We always only check a single row
-		return store.BreakScan
-	})
-
-	if err != nil && err != store.BreakScan {
-		return nil, nil, fmt.Errorf("unable to fetch index for key prefix %q: %w", Key(prefixKey), err)
-	}
-
-	if rawIndex == nil {
-		return nil, nil, store.ErrNotFound
-	}
-
-	return rowKey, rawIndex, nil
 }
 
 func (s *KVStore) HasTabletRow(ctx context.Context, tabletKey []byte) (exists bool, err error) {
@@ -323,7 +296,6 @@ func (b *batch) Reset() {
 	b.count = 0
 	b.tableMutations = map[byte]*keyToValueMap{
 		TblPrefixRows:           {mappings: map[string][]byte{}},
-		TblPrefixIndex:          {mappings: map[string][]byte{}},
 		TblPrefixLastCheckpoint: {mappings: map[string][]byte{}},
 	}
 }
@@ -355,7 +327,6 @@ func (b *batch) Flush(ctx context.Context) error {
 
 	tableNames := []byte{
 		TblPrefixRows,
-		TblPrefixIndex,
 
 		// The table name `last` must always be the last table in this list!
 		TblPrefixLastCheckpoint,
@@ -403,10 +374,6 @@ func (b *batch) SetRow(key []byte, value []byte) {
 
 func (b *batch) SetLastCheckpoint(key []byte, value []byte) {
 	b.setTable(TblPrefixLastCheckpoint, key, value)
-}
-
-func (b *batch) SetIndex(key []byte, tableSnapshot []byte) {
-	b.setTable(TblPrefixIndex, key, tableSnapshot)
 }
 
 func packKey(table byte, key []byte) []byte {

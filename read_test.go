@@ -183,6 +183,15 @@ func TestReadSingletAt(t *testing.T) {
 			fetchForHeight: 2,
 			expectedNil:    true,
 		},
+
+		{
+			name: "returns nil, nil when entry not found and no error",
+			entries: []uint64{
+				3, 5,
+			},
+			fetchForHeight: 2,
+			expectedNil:    true,
+		},
 	}
 
 	for _, test := range tests {

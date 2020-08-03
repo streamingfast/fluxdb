@@ -81,6 +81,7 @@ func (fdb *FluxDB) Launch(enablePipeline bool) {
 
 	} else {
 		// running the pipeline, this call is blocking
+		zlog.Info("starting pipeline")
 		fdb.source.Run()
 		<-fdb.source.Terminating()
 

@@ -42,7 +42,6 @@ type Batch interface {
 	//        all saved element would pass through those methods...
 	SetRow(key []byte, value []byte)
 	SetLastCheckpoint(key []byte, value []byte)
-	SetIndex(key []byte, value []byte)
 
 	Reset()
 }
@@ -56,14 +55,19 @@ type KVStore interface {
 
 	NewBatch(logger *zap.Logger) Batch
 
-	FetchIndex(ctx context.Context, tableKey, prefixKey, keyStart []byte) (rowKey []byte, rawIndex []byte, err error)
-
 	HasTabletRow(ctx context.Context, tabletKey []byte) (exists bool, err error)
 
 	FetchTabletRow(ctx context.Context, key []byte) (value []byte, err error)
 
 	FetchTabletRows(ctx context.Context, keys [][]byte, onKeyValue OnKeyValue) error
 
+	// FetchSingletEntry reads a single singlet entry for the given Singlet range. The range must include block
+	// boundaries to ensure we match only element from this singlet and not a next following.
+	//
+	// If the entry is found, the `key` and `value` will be set and `err` will be `nil`. If the entry is
+	// found withing the range, `key`, `value` and `err` will be `nil`. Finally, if an error is encountered
+	// while fetching the singlet entry, `key` and `value` will be `nil` and `err` will be set to the
+	// error hit.
 	FetchSingletEntry(ctx context.Context, keyStart, keyEnd []byte) (key []byte, value []byte, err error)
 
 	ScanTabletRows(ctx context.Context, keyStart, keyEnd []byte, onKeyValue OnKeyValue) error

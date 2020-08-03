@@ -290,6 +290,9 @@ func (fdb *FluxDB) ReadTabletRowAt(
 
 // ReadSingletEntryAt query the storage engine returning the active singlet entry
 // value at specified height.
+//
+// Returns `<Entry>, nil` when an entry has been found, `nil, nil` when no entry was found
+// and finally, `nil, <error>` if an error was encountered while fetching the singlet entry.
 func (fdb *FluxDB) ReadSingletEntryAt(
 	ctx context.Context,
 	singlet Singlet,

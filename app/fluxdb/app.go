@@ -52,14 +52,19 @@ type Config struct {
 type App struct {
 	*shutter.Shutter
 	config *Config
-	mapper fluxdb.BlockMapper
+
+	mapper       fluxdb.BlockMapper
+	onServerMode func(db *fluxdb.FluxDB)
+	onInjectMode func(db *fluxdb.FluxDB)
 }
 
-func New(config *Config, mapper fluxdb.BlockMapper) *App {
+func New(config *Config, mapper fluxdb.BlockMapper, onServerMode func(db *fluxdb.FluxDB), onInjectMode func(db *fluxdb.FluxDB)) *App {
 	return &App{
-		Shutter: shutter.New(),
-		config:  config,
-		mapper:  mapper,
+		Shutter:      shutter.New(),
+		config:       config,
+		mapper:       mapper,
+		onServerMode: onServerMode,
+		onInjectMode: onInjectMode,
 	}
 }
 
@@ -119,10 +124,11 @@ func (a *App) startStandard(blocksStore dstore.Store, kvStore store.KVStore) err
 	}
 
 	if a.config.EnableServerMode {
-		// FIXME: Hook to start servers?
+		zlog.Info("invoking on server mode callback")
+		a.onServerMode(db)
 	} else {
-		zlog.Info("setting injecter mode health check")
-		// FIXME: Hook health server?
+		zlog.Info("invoking on inject mode callback")
+		a.onInjectMode(db)
 	}
 
 	go db.Launch(a.config.EnablePipeline)
@@ -143,7 +149,7 @@ func (a *App) startReprocSharder(blocksStore dstore.Store) error {
 		uint64(a.config.ReprocSharderStopBlockNum),
 	)
 
-	// FIXME: We should use the new `DPoSLIBNumAtBlockHeightFromBlockStore` to go back as far as neede!
+	// FIXME: We should use the new `DPoSLIBNumAtBlockHeightFromBlockStore` to go back as far as needed!
 	source := fluxdb.BuildReprocessingPipeline(a.mapper, shardingPipe, blocksStore, a.config.ReprocSharderStartBlockNum, 400, 2)
 
 	a.OnTerminating(func(e error) {

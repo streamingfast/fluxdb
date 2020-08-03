@@ -16,12 +16,10 @@ package fluxdb
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math"
 
 	"github.com/dfuse-io/dtracing"
-	"github.com/dfuse-io/fluxdb/store"
 	"github.com/dfuse-io/logging"
 	pbfluxdb "github.com/dfuse-io/pbgo/dfuse/fluxdb/v1"
 	"github.com/golang/protobuf/proto"
@@ -45,7 +43,6 @@ func (fdb *FluxDB) IndexTables(ctx context.Context) error {
 		}
 
 		zlog.Debug("indexing table", zap.Stringer("tablet", tablet), zap.Uint64("height", height))
-
 		if err := batch.FlushIfFull(ctx); err != nil {
 			return fmt.Errorf("flush if full: %w", err)
 		}
@@ -58,11 +55,13 @@ func (fdb *FluxDB) IndexTables(ctx context.Context) error {
 			zlog.Debug("index not in cache")
 
 			indexEntry, err := fdb.ReadSingletEntryAt(ctx, indexSinglet, math.MaxUint64, nil)
-			if errors.Is(err, store.ErrNotFound) {
+			if err != nil {
+				return fmt.Errorf("get index %s at height %d: %w", tablet, height, err)
+			}
+
+			if indexEntry == nil {
 				zlog.Debug("index does not exist yet, creating empty one")
 				index = NewTabletIndex()
-			} else if err != nil {
-				return fmt.Errorf("get index %s (%d): %w", tablet, height, err)
 			} else {
 				index = indexEntry.(indexSingletEntry).index
 			}
