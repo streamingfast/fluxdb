@@ -15,19 +15,12 @@
 package fluxdb
 
 import (
+	"encoding/binary"
 	"fmt"
 	"math"
-	"strconv"
-	"strings"
 )
 
-func HexHeight(height uint64) string {
-	return fmt.Sprintf("%016x", height)
-}
-
-func HexRevHeight(height uint64) string {
-	return HexHeight(math.MaxUint64 - height)
-}
+var bigEndian = binary.BigEndian
 
 func copyCollection(dst []byte, collection uint16) {
 	bigEndian.PutUint16(dst, collection)
@@ -41,35 +34,10 @@ func copyRevHeight(dst []byte, height uint64) {
 	copyHeight(dst, math.MaxUint64-height)
 }
 
-// chunkKeyRevHeight returns the actual block num out of a
-// reverse-encoded block num
-func chunkKeyRevHeight(key string, prefixKey string) (height uint64, err error) {
-	height, err = chunkKeyHeight(key, prefixKey)
-	if err != nil {
-		return 0, err
-	}
-
-	return math.MaxUint64 - height, nil
+func ErrInvalidKeyLength(tag string, expected, actual int) error {
+	return fmt.Errorf("invalid %s length, expected %d bytes, got %d", tag, expected, actual)
 }
 
-func chunkKeyHeight(key string, prefixKey string) (height uint64, err error) {
-	if !strings.HasPrefix(key, prefixKey) {
-		return 0, fmt.Errorf("key %s should start with prefix key %s", key, prefixKey)
-	}
-
-	if len(key) < len(prefixKey)+16 {
-		return 0, fmt.Errorf("key %s is too small too contains block num, should have at least 16 characters more than prefix", key)
-	}
-
-	revHeight := key[len(prefixKey) : len(prefixKey)+16]
-	if len(revHeight) != 16 {
-		return 0, fmt.Errorf("revHeight %s should have a length of 16", revHeight)
-	}
-
-	val, err := strconv.ParseUint(revHeight, 16, 64)
-	if err != nil {
-		return 0, err
-	}
-
-	return val, nil
+func ErrInvalidKeyLengthAtLeast(tag string, expected, actual int) error {
+	return fmt.Errorf("invalid %s length, expected at least %d bytes, got %d", tag, expected, actual)
 }

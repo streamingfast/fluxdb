@@ -146,10 +146,12 @@ func (fdb *FluxDB) writeBlock(ctx context.Context, batch store.Batch, w *WriteRe
 
 		batch.SetRow(KeyForTabletRow(row), value)
 
-		tablet := row.Tablet()
-		fdb.idxCache.IncCount(tablet)
-		if fdb.idxCache.shouldTriggerIndexing(tablet) {
-			fdb.idxCache.ScheduleIndex(tablet, w.Height)
+		// We could group `w.TabletRows` by tablet here greatly reducing the number of time
+		// we need to compute the tablet key, reducing memory allocation an GC at the same time.
+		tabletKey := KeyForTablet(row.Tablet())
+		fdb.idxCache.IncCount(tabletKey)
+		if fdb.idxCache.shouldTriggerIndexing(tabletKey) {
+			fdb.idxCache.ScheduleIndex(tabletKey, w.Height)
 		}
 	}
 

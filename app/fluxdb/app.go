@@ -42,8 +42,8 @@ type Config struct {
 	ReprocShardCount    uint64
 
 	// Available for reproc-shard only
-	ReprocSharderStartHeight uint64
-	ReprocSharderStopHeight  uint64
+	ReprocSharderStartBlockNum uint64
+	ReprocSharderStopBlockNum  uint64
 
 	// Available for reproc-injector only
 	ReprocInjectorShardIndex uint64
@@ -65,7 +65,7 @@ func New(config *Config, mapper fluxdb.BlockMapper) *App {
 
 func (a *App) Run() error {
 	zlog.Info("running fluxdb", zap.Reflect("config", a.config))
-	if err := a.config.validate(); err != nil {
+	if err := a.config.Validate(); err != nil {
 		return fmt.Errorf("invalid app config: %w", err)
 	}
 
@@ -139,12 +139,12 @@ func (a *App) startReprocSharder(blocksStore dstore.Store) error {
 	shardingPipe := fluxdb.NewSharder(
 		shardsStore,
 		int(a.config.ReprocShardCount),
-		uint64(a.config.ReprocSharderStartHeight),
-		uint64(a.config.ReprocSharderStopHeight),
+		uint64(a.config.ReprocSharderStartBlockNum),
+		uint64(a.config.ReprocSharderStopBlockNum),
 	)
 
 	// FIXME: We should use the new `DPoSLIBNumAtBlockHeightFromBlockStore` to go back as far as neede!
-	source := fluxdb.BuildReprocessingPipeline(a.mapper, shardingPipe, blocksStore, a.config.ReprocSharderStartHeight, 400, 2)
+	source := fluxdb.BuildReprocessingPipeline(a.mapper, shardingPipe, blocksStore, a.config.ReprocSharderStartBlockNum, 400, 2)
 
 	a.OnTerminating(func(e error) {
 		source.Shutdown(nil)
@@ -216,7 +216,7 @@ func (a *App) startReprocInjector(kvStore store.KVStore) error {
 	return nil
 }
 
-func (config *Config) validate() error {
+func (config *Config) Validate() error {
 	server := config.EnableServerMode
 	injector := config.EnableInjectMode
 	reprocSharder := config.EnableReprocSharderMode

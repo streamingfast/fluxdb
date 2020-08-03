@@ -176,17 +176,15 @@ func (fdb *FluxDB) ReadTabletAt(
 func (fdb *FluxDB) ReadTabletRowAt(
 	ctx context.Context,
 	height uint64,
-	tabletRow TabletRow,
+	tablet Tablet,
+	primaryKey TabletRowPrimaryKey,
 	speculativeWrites []*WriteRequest,
 ) (TabletRow, error) {
-	tablet := tabletRow.Tablet()
-	primaryKey := tabletRow.PrimaryKey()
-
-	ctx, span := dtracing.StartSpan(ctx, "read tablet row", "tablet", tablet, "height", height)
+	ctx, span := dtracing.StartSpan(ctx, "read tablet row", "tablet", tablet, "height", height, "primaryKey", primaryKey)
 	defer span.End()
 
 	zlogger := logging.Logger(ctx, zlog)
-	zlogger.Debug("reading tablet row", zap.Stringer("row", tabletRow), zap.Uint64("height", height))
+	zlogger.Debug("reading tablet row", zap.Stringer("tablet", tablet), zap.Uint64("height", height), zap.Stringer("primary_key", primaryKey))
 
 	idx, err := fdb.getIndex(ctx, tablet, height)
 	if err != nil {
@@ -195,14 +193,16 @@ func (fdb *FluxDB) ReadTabletRowAt(
 
 	startKey := KeyForTabletAt(tablet, 0)
 	endKey := KeyForTabletAt(tablet, height+1)
+
+	primaryKeyBytes := primaryKey.Bytes()
 	var row TabletRow
 	if idx != nil {
 		idxRowCount := idx.RowCount()
 		zlogger.Debug("tablet index exists, reconciling it", zap.Uint64("row_count", idxRowCount))
 		startKey = KeyForTabletAt(tablet, idx.AtHeight+1)
 
-		if height, ok := idx.PrimaryKeyToHeight.get(tabletRow.PrimaryKey()); ok {
-			rowKey := KeyForTabletRowParts(tablet, height, primaryKey)
+		if height, ok := idx.PrimaryKeyToHeight.get(primaryKeyBytes); ok {
+			rowKey := KeyForTabletRowParts(tablet, height, primaryKeyBytes)
 			zlogger.Debug("reading index row", zap.Stringer("row_key", rowKey))
 
 			value, err := fdb.store.FetchTabletRow(ctx, rowKey)
@@ -213,7 +213,7 @@ func (fdb *FluxDB) ReadTabletRowAt(
 				return nil, fmt.Errorf("reading tablet index row %q: %w", rowKey, err)
 			}
 			if len(value) <= 0 {
-				row, err = tablet.Row(height, primaryKey, value)
+				row, err = tablet.Row(height, primaryKeyBytes, value)
 				if err != nil {
 					return nil, fmt.Errorf("could not create table from key value with row key %q: %w", rowKey, err)
 				}
@@ -239,7 +239,7 @@ func (fdb *FluxDB) ReadTabletRowAt(
 			return fmt.Errorf("tablet new row %q: %w", Key(key), err)
 		}
 
-		if !bytes.Equal(primaryKey, candidateRow.PrimaryKey()) {
+		if !bytes.Equal(primaryKeyBytes, candidateRow.PrimaryKey()) {
 			return nil
 		}
 
@@ -270,7 +270,7 @@ func (fdb *FluxDB) ReadTabletRowAt(
 				continue
 			}
 
-			if bytes.Equal(primaryKey, speculativeRow.PrimaryKey()) {
+			if bytes.Equal(primaryKeyBytes, speculativeRow.PrimaryKey()) {
 				continue
 			}
 

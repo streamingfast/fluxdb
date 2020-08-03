@@ -16,7 +16,6 @@ package fluxdb
 
 import (
 	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"math"
@@ -29,8 +28,6 @@ import (
 	"go.uber.org/zap"
 )
 
-var bigEndian = binary.BigEndian
-
 func (fdb *FluxDB) IndexTables(ctx context.Context) error {
 	ctx, span := dtracing.StartSpan(ctx, "index tables")
 	defer span.End()
@@ -40,7 +37,13 @@ func (fdb *FluxDB) IndexTables(ctx context.Context) error {
 
 	batch := fdb.store.NewBatch(zlog)
 
-	for tablet, height := range fdb.idxCache.scheduleIndexing {
+	for key, height := range fdb.idxCache.scheduleIndexing {
+		tabletKey := TabletKey(key)
+		tablet, err := NewTablet(tabletKey)
+		if err != nil {
+			return fmt.Errorf("unable to obtain tablet from its key: %w", err)
+		}
+
 		zlog.Debug("indexing table", zap.Stringer("tablet", tablet), zap.Uint64("height", height))
 
 		if err := batch.FlushIfFull(ctx); err != nil {
@@ -50,7 +53,7 @@ func (fdb *FluxDB) IndexTables(ctx context.Context) error {
 		indexSinglet := newIndexSinglet(tablet)
 
 		zlog.Debug("checking if index already exist in cache")
-		index := fdb.idxCache.GetIndex(tablet)
+		index := fdb.idxCache.GetIndex(tabletKey)
 		if index == nil {
 			zlog.Debug("index not in cache")
 
@@ -71,7 +74,7 @@ func (fdb *FluxDB) IndexTables(ctx context.Context) error {
 		zlog.Debug("reading table rows for indexation", zap.Stringer("first_row_key", startKey), zap.Stringer("last_row_key", endKey))
 
 		count := 0
-		err := fdb.store.ScanTabletRows(ctx, startKey, endKey, func(key []byte, value []byte) error {
+		err = fdb.store.ScanTabletRows(ctx, startKey, endKey, func(key []byte, value []byte) error {
 			// We are really only interested by the row's key here, so we don't give it any value, just like if it would be a deleted row
 			row, err := NewTabletRow(tablet, key, nil)
 			if err != nil {
@@ -116,9 +119,9 @@ func (fdb *FluxDB) IndexTables(ctx context.Context) error {
 		batch.SetRow(KeyForSingletEntry(indexEntry), value)
 
 		zlog.Debug("caching index in index cache", zap.Stringer("index_entry", indexEntry), zap.Stringer("tablet", tablet))
-		fdb.idxCache.CacheIndex(tablet, index)
-		fdb.idxCache.ResetCounter(tablet)
-		delete(fdb.idxCache.scheduleIndexing, tablet)
+		fdb.idxCache.CacheIndex(tabletKey, index)
+		fdb.idxCache.ResetCounter(tabletKey)
+		delete(fdb.idxCache.scheduleIndexing, string(tabletKey))
 	}
 
 	if err := batch.Flush(ctx); err != nil {
@@ -150,47 +153,47 @@ func (fdb *FluxDB) getIndex(ctx context.Context, tablet Tablet, height uint64) (
 }
 
 type indexCache struct {
-	lastIndexes      map[Tablet]*TabletIndex
-	lastCounters     map[Tablet]int
-	scheduleIndexing map[Tablet]uint64
+	lastIndexes      map[string]*TabletIndex
+	lastCounters     map[string]int
+	scheduleIndexing map[string]uint64
 }
 
 func newIndexCache() *indexCache {
 	return &indexCache{
-		lastIndexes:      make(map[Tablet]*TabletIndex),
-		lastCounters:     make(map[Tablet]int),
-		scheduleIndexing: make(map[Tablet]uint64),
+		lastIndexes:      make(map[string]*TabletIndex),
+		lastCounters:     make(map[string]int),
+		scheduleIndexing: make(map[string]uint64),
 	}
 }
 
-func (t *indexCache) GetIndex(tablet Tablet) *TabletIndex {
-	return t.lastIndexes[tablet]
+func (t *indexCache) GetIndex(key TabletKey) *TabletIndex {
+	return t.lastIndexes[string(key)]
 }
 
-func (t *indexCache) CacheIndex(tablet Tablet, tableIndex *TabletIndex) {
-	t.lastIndexes[tablet] = tableIndex
+func (t *indexCache) CacheIndex(key TabletKey, tableIndex *TabletIndex) {
+	t.lastIndexes[string(key)] = tableIndex
 }
 
-func (t *indexCache) GetCount(tablet Tablet) int {
-	return t.lastCounters[tablet]
+func (t *indexCache) GetCount(key TabletKey) int {
+	return t.lastCounters[string(key)]
 }
 
-func (t *indexCache) IncCount(tablet Tablet) {
-	t.lastCounters[tablet]++
+func (t *indexCache) IncCount(key TabletKey) {
+	t.lastCounters[string(key)]++
 }
 
-func (t *indexCache) ResetCounter(tablet Tablet) {
-	t.lastCounters[tablet] = 0
+func (t *indexCache) ResetCounter(key TabletKey) {
+	t.lastCounters[string(key)] = 0
 }
 
 // This algorithm determines the space between the indexes
-func (t *indexCache) shouldTriggerIndexing(tablet Tablet) bool {
-	mutatedRowsCount := t.lastCounters[tablet]
+func (t *indexCache) shouldTriggerIndexing(key TabletKey) bool {
+	mutatedRowsCount := t.lastCounters[string(key)]
 	if mutatedRowsCount < 1000 {
 		return false
 	}
 
-	lastIndex := t.lastIndexes[tablet]
+	lastIndex := t.lastIndexes[string(key)]
 	if lastIndex == nil {
 		return true
 	}
@@ -206,11 +209,11 @@ func (t *indexCache) shouldTriggerIndexing(tablet Tablet) bool {
 	return true
 }
 
-func (t *indexCache) ScheduleIndex(tablet Tablet, height uint64) {
-	t.scheduleIndexing[tablet] = height
+func (t *indexCache) ScheduleIndex(key TabletKey, height uint64) {
+	t.scheduleIndexing[string(key)] = height
 }
 
-func (t *indexCache) IndexingSchedule() map[Tablet]uint64 {
+func (t *indexCache) IndexingSchedule() map[string]uint64 {
 	return t.scheduleIndexing
 }
 
@@ -281,9 +284,13 @@ type indexSingletEntry struct {
 
 func newIndexSingletEntry(singlet indexSinglet, index *TabletIndex) indexSingletEntry {
 	return indexSingletEntry{
-		BaseSingletEntry: NewBaseSingletEntry(singlet, index.AtHeight, false),
+		BaseSingletEntry: NewBaseSingletEntry(singlet, index.AtHeight, nil),
 		index:            index,
 	}
+}
+
+func (s indexSingletEntry) IsDeletion() bool {
+	return false
 }
 
 func (s indexSingletEntry) MarshalValue() ([]byte, error) {

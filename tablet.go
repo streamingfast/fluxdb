@@ -280,16 +280,26 @@ func (k TabletRowKey) String() string {
 	return row.String()
 }
 
+// TabletRowPrimaryKey represents a specific primary key for a given TabletRow. It's used
+// mainly for reading a specific tablet row providing easy human readable version for the
+// concrete type of TabletRow.
+type TabletRowPrimaryKey interface {
+	Bytes() []byte
+	String() string
+}
+
 type BaseTabletRow struct {
 	tablet     Tablet
 	height     uint64
-	isDeletion bool
+	primaryKey []byte
+	value      []byte
 }
 
-func NewBaseTabletRow(tablet Tablet, height uint64, isDeletion bool) (out BaseTabletRow) {
+func NewBaseTabletRow(tablet Tablet, height uint64, primaryKey []byte, value []byte) (out BaseTabletRow) {
 	out.tablet = tablet
 	out.height = height
-	out.isDeletion = isDeletion
+	out.primaryKey = primaryKey
+	out.value = value
 	return
 }
 
@@ -301,8 +311,20 @@ func (b BaseTabletRow) Height() uint64 {
 	return b.height
 }
 
+func (b BaseTabletRow) PrimaryKey() []byte {
+	return b.primaryKey
+}
+
 func (b BaseTabletRow) IsDeletion() bool {
-	return b.isDeletion
+	return len(b.value) <= 0
+}
+
+func (b BaseTabletRow) MarshalValue() ([]byte, error) {
+	return b.value, nil
+}
+
+func (b BaseTabletRow) Value() []byte {
+	return b.value
 }
 
 func (b BaseTabletRow) Stringify(primaryKey string) string {

@@ -134,7 +134,7 @@ func newTestSinglet(elementName string) testSinglet {
 }
 
 func (s testSinglet) Collection() uint16 {
-	return 0xFFF1
+	return testSingletCollection
 }
 
 func (s testSinglet) Identifier() []byte {
@@ -142,11 +142,11 @@ func (s testSinglet) Identifier() []byte {
 }
 
 func (s testSinglet) Entry(height uint64, data []byte) (SingletEntry, error) {
-	return testSingletEntry{NewBaseSingletEntry(s, height, len(data) <= 0), string(data)}, nil
+	return testSingletEntry{NewBaseSingletEntry(s, height, data)}, nil
 }
 
 func (s testSinglet) entry(tt *testing.T, height uint64, data string) SingletEntry {
-	return testSingletEntry{NewBaseSingletEntry(s, height, len(data) <= 0), data}
+	return testSingletEntry{NewBaseSingletEntry(s, height, []byte(data))}
 }
 
 func (s testSinglet) String() string {
@@ -155,7 +155,8 @@ func (s testSinglet) String() string {
 
 type testSingletEntry struct {
 	BaseSingletEntry
-	data string
 }
 
-func (r testSingletEntry) MarshalValue() ([]byte, error) { return []byte(r.data), nil }
+func (e testSingletEntry) data() string {
+	return string(e.value)
+}

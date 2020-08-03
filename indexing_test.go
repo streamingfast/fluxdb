@@ -137,20 +137,21 @@ func TestShouldTriggerIndexing(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.label, func(t *testing.T) {
 			tablet := testTablet("a")
+			tabletKey := KeyForTablet(tablet)
 
 			cache := &indexCache{
-				lastCounters: make(map[Tablet]int),
-				lastIndexes:  make(map[Tablet]*TabletIndex),
+				lastCounters: make(map[string]int),
+				lastIndexes:  make(map[string]*TabletIndex),
 			}
-			cache.lastCounters[tablet] = test.mutationsCount
+			cache.lastCounters[string(tabletKey)] = test.mutationsCount
 			if test.indexRowCount != 0 {
 				t := &TabletIndex{PrimaryKeyToHeight: newPrimaryKeyToHeightMap(8)}
 				for i := 0; i < test.indexRowCount; i++ {
 					t.PrimaryKeyToHeight.put([]byte(fmt.Sprintf("%016x", i)), 0)
 				}
-				cache.lastIndexes[tablet] = t
+				cache.lastIndexes[string(tabletKey)] = t
 			}
-			res := cache.shouldTriggerIndexing(tablet)
+			res := cache.shouldTriggerIndexing(tabletKey)
 			assert.Equal(t, test.expect, res)
 		})
 	}

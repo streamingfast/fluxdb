@@ -4,12 +4,12 @@ require (
 	github.com/Azure/azure-pipeline-go v0.2.2 // indirect
 	github.com/abourget/llerrgroup v0.2.0
 	github.com/cespare/xxhash/v2 v2.1.1 // indirect
-	github.com/dfuse-io/bstream v0.0.2-0.20200724164826-46514ddda736
-	github.com/dfuse-io/derr v0.0.0-20200417132224-d333cfd0e9a0
+	github.com/dfuse-io/bstream v0.0.2-0.20200730171716-a46b819bf678
+	github.com/dfuse-io/derr v0.0.0-20200730183817-a747f6f333ad
 	github.com/dfuse-io/dmetrics v0.0.0-20200508170817-3b8cb01fee68 // indirect
 	github.com/dfuse-io/dstore v0.1.0
 	github.com/dfuse-io/dtracing v0.0.0-20200417133307-c09302668d0c
-	github.com/dfuse-io/kvdb v0.0.0-20200619171121-937464bfbae5
+	github.com/dfuse-io/kvdb v0.0.2-0.20200710185837-6525655ea360
 	github.com/dfuse-io/logging v0.0.0-20200417143534-5e26069a5e39
 	github.com/dfuse-io/pbgo v0.0.6-0.20200729035815-5da1dbc5e2ac
 	github.com/dfuse-io/shutter v1.4.1-0.20200407040739-f908f9ab727f

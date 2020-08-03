@@ -223,7 +223,7 @@ func newTestTablet(tableName string) testTablet {
 	return testTablet(tableName)
 }
 
-func (t testTablet) Collection() uint16 { return 0xFFF2 }
+func (t testTablet) Collection() uint16 { return testTabletCollection }
 
 func (t testTablet) Identifier() []byte { return []byte(t) }
 
@@ -232,13 +232,13 @@ func (t testTablet) Row(height uint64, primaryKey []byte, value []byte) (TabletR
 		return nil, fmt.Errorf("test tablet row primary key must always contain 3 bytes")
 	}
 
-	return testTabletRow{NewBaseTabletRow(t, height, len(value) <= 0), string(primaryKey), string(value)}, nil
+	return testTabletRow{NewBaseTabletRow(t, height, primaryKey, value)}, nil
 }
 
 func (t testTablet) row(tt *testing.T, height uint64, primaryKey string, value string) TabletRow {
 	require.Len(tt, primaryKey, 3, "test tablet row primary key must always contain 3 bytes")
 
-	return testTabletRow{NewBaseTabletRow(t, height, len(value) <= 0), primaryKey, value}
+	return testTabletRow{NewBaseTabletRow(t, height, []byte(primaryKey), []byte(value))}
 }
 
 func (t testTablet) String() string {
@@ -247,12 +247,16 @@ func (t testTablet) String() string {
 
 type testTabletRow struct {
 	BaseTabletRow
-	primaryKey string
-	value      string
 }
 
-func (r testTabletRow) PrimaryKey() []byte            { return []byte(r.primaryKey) }
-func (r testTabletRow) MarshalValue() ([]byte, error) { return []byte(r.value), nil }
+func (r testTabletRow) PrimaryKey() []byte {
+	return []byte(r.primaryKey)
+}
+
 func (r testTabletRow) String() string {
-	return r.Stringify(r.primaryKey)
+	return r.Stringify(string(r.PrimaryKey()))
+}
+
+func (r testTabletRow) data() string {
+	return string(r.value)
 }

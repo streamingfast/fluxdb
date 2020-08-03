@@ -15,7 +15,6 @@
 package fluxdb
 
 import (
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -24,36 +23,8 @@ import (
 	"github.com/dfuse-io/fluxdb/store/kv"
 	_ "github.com/dfuse-io/kvdb/store/badger"
 	_ "github.com/dfuse-io/kvdb/store/bigkv"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func Test_chunkKeyRevHeight(t *testing.T) {
-	tests := []struct {
-		key           string
-		prefixKey     string
-		expected      uint64
-		expectedError error
-	}{
-		{"ts:0000:ffffffffffffebd1", "ts:0000:", 5166, nil},
-		{"ts:0000:ffffffffffffebd1:00000000:000000", "ts:0000:", 5166, nil},
-
-		{"ta:0000:fffffffffffffebd", "ts:0000:", 0, errors.New("key ta:0000:fffffffffffffebd should start with prefix key ts:0000:")},
-		{"ts:0000:ffffffffffffebd", "ts:0000:", 0, errors.New("key ts:0000:ffffffffffffebd is too small too contains block num, should have at least 16 characters more than prefix")},
-	}
-
-	for i, test := range tests {
-		t.Run(fmt.Sprintf("%d", i), func(t *testing.T) {
-			actual, err := chunkKeyRevHeight(test.key, test.prefixKey)
-			if test.expectedError == nil {
-				require.NoError(t, err)
-				assert.Equal(t, test.expected, actual)
-			} else {
-				require.Equal(t, test.expectedError, err)
-			}
-		})
-	}
-}
 
 func NewTestDB(t *testing.T) (*FluxDB, func()) {
 	tmp, err := ioutil.TempDir("", "badger")

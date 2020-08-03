@@ -248,15 +248,15 @@ func (k SingletEntryKey) String() string {
 }
 
 type BaseSingletEntry struct {
-	singlet    Singlet
-	height     uint64
-	isDeletion bool
+	singlet Singlet
+	height  uint64
+	value   []byte
 }
 
-func NewBaseSingletEntry(singlet Singlet, height uint64, isDeletion bool) (out BaseSingletEntry) {
+func NewBaseSingletEntry(singlet Singlet, height uint64, value []byte) (out BaseSingletEntry) {
 	out.singlet = singlet
 	out.height = height
-	out.isDeletion = isDeletion
+	out.value = value
 	return
 }
 
@@ -269,7 +269,15 @@ func (b BaseSingletEntry) Height() uint64 {
 }
 
 func (b BaseSingletEntry) IsDeletion() bool {
-	return b.isDeletion
+	return len(b.value) <= 0
+}
+
+func (b BaseSingletEntry) MarshalValue() ([]byte, error) {
+	return b.value, nil
+}
+
+func (b BaseSingletEntry) Value() []byte {
+	return b.value
 }
 
 func (b BaseSingletEntry) String() string {

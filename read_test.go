@@ -203,7 +203,7 @@ func TestReadSingletAt(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 				require.NotNil(t, entry, "entry is nil")
-				assert.Equal(t, test.expectedEntry, entry.(testSingletEntry).data)
+				assert.Equal(t, test.expectedEntry, entry.(testSingletEntry).data())
 			}
 		})
 	}
