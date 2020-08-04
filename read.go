@@ -43,15 +43,15 @@ func (fdb *FluxDB) ReadTabletAt(
 	zlogger := logging.Logger(ctx, zlog)
 	zlogger.Debug("reading tablet", zap.Stringer("tablet", tablet), zap.Uint64("height", height))
 
-	startKey := KeyForTabletAt(tablet, 0)
-	endKey := KeyForTabletAt(tablet, height+1)
-	rowByPrimaryKey := newPrimaryKeyToTabletRowMap(8)
-
 	idx, err := fdb.getIndex(ctx, tablet, height)
 	if err != nil {
 		return nil, fmt.Errorf("fetch tablet index: %w", err)
 	}
 
+	startKey := KeyForTabletAt(tablet, 0)
+	endKey := KeyForTabletAt(tablet, height+1)
+
+	var rowByPrimaryKey *primaryKeyToTabletRowMap
 	if idx != nil {
 		idxRowCount := idx.RowCount()
 		zlogger.Debug("tablet index exists, reconciling it", zap.Uint64("row_count", idxRowCount))
@@ -106,6 +106,9 @@ func (fdb *FluxDB) ReadTabletAt(
 		}
 
 		zlogger.Debug("finished reconciling index")
+	} else {
+		// We need to create a new map with a default length
+		rowByPrimaryKey = newPrimaryKeyToTabletRowMap(8)
 	}
 
 	zlogger.Debug("reading tablet rows from database",
@@ -142,7 +145,7 @@ func (fdb *FluxDB) ReadTabletAt(
 	}
 
 	zlogger.Debug("reading tablet rows from speculative writes",
-		zap.Int("db_row_count", rowByPrimaryKey.len()),
+		zap.Int("accumulated_row_count", rowByPrimaryKey.len()),
 		zap.Int("deleted_count", deletedCount),
 		zap.Int("updated_count", updatedCount),
 		zap.Int("speculative_write_count", len(speculativeWrites)),
@@ -346,7 +349,7 @@ func (fdb *FluxDB) HasSeenAnyRowForTablet(ctx context.Context, tablet Tablet) (e
 	ctx, span := dtracing.StartSpan(ctx, "has seen tablet row", "tablet", tablet.String())
 	defer span.End()
 
-	return fdb.store.HasTabletRow(ctx, KeyForTablet(tablet))
+	return fdb.store.HasTabletRow(ctx, KeyForTabletAt(tablet, 0), KeyForTabletAt(tablet, math.MaxUint64))
 }
 
 func (fdb *FluxDB) FetchLastWrittenCheckpoint(ctx context.Context) (height uint64, block bstream.BlockRef, err error) {

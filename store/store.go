@@ -55,7 +55,7 @@ type KVStore interface {
 
 	NewBatch(logger *zap.Logger) Batch
 
-	HasTabletRow(ctx context.Context, tabletKey []byte) (exists bool, err error)
+	HasTabletRow(ctx context.Context, keyStart, keyEnd []byte) (exists bool, err error)
 
 	FetchTabletRow(ctx context.Context, key []byte) (value []byte, err error)
 

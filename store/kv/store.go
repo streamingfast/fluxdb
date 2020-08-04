@@ -82,14 +82,14 @@ func (s *KVStore) FetchSingletEntry(ctx context.Context, keyStart, keyEnd []byte
 	return key, value, nil
 }
 
-func (s *KVStore) HasTabletRow(ctx context.Context, tabletKey []byte) (exists bool, err error) {
-	err = s.scanPrefix(ctx, TblPrefixRows, tabletKey, 1, func(_ []byte, _ []byte) error {
+func (s *KVStore) HasTabletRow(ctx context.Context, keyStart, keyEnd []byte) (exists bool, err error) {
+	err = s.scanRange(ctx, TblPrefixRows, keyStart, keyEnd, 1, func(_ []byte, _ []byte) error {
 		exists = true
 		return store.BreakScan
 	})
 
 	if err != nil && err != store.BreakScan {
-		return false, fmt.Errorf("scan has tablet row %q: %w", Key(tabletKey), err)
+		return false, fmt.Errorf("scan has tablet row [%q, %q[: %w", keyStart, keyEnd, err)
 	}
 
 	return exists, nil
