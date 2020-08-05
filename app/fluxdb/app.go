@@ -205,16 +205,16 @@ func (a *App) startReprocInjector(kvStore store.KVStore) error {
 	}
 
 	ctx := context.Background()
-	lastBlock, err := db.VerifyAllShardsWritten(ctx)
+	height, lastBlock, err := db.VerifyAllShardsWritten(ctx)
 	if err != nil {
-		zlog.Info("all shards are not done yet, not updating lastBlockID", zap.Error(err))
+		zlog.Info("all shards are not done yet, not updating last block", zap.Error(err))
 		a.Shutdown(nil)
 		return nil
 	}
 
-	err = db.UpdateGlobalLastBlockID(ctx, lastBlock)
+	err = db.WriteShardingFinalCheckpoint(ctx, height, lastBlock)
 	if err != nil {
-		zlog.Error("cannot update lastBlockID", zap.Error(err))
+		zlog.Error("cannot update last block", zap.Error(err), zap.Stringer("last_block", lastBlock))
 		return fmt.Errorf("cannot update lastBlockID: %w", err)
 	}
 

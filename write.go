@@ -19,6 +19,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/dfuse-io/bstream"
 	"github.com/dfuse-io/dtracing"
 	"github.com/dfuse-io/fluxdb/store"
 	"github.com/dfuse-io/logging"
@@ -62,39 +63,49 @@ func (fdb *FluxDB) WriteBatch(ctx context.Context, w []*WriteRequest) error {
 	return nil
 }
 
-func (fdb *FluxDB) VerifyAllShardsWritten(ctx context.Context) (string, error) {
-	seen := make(map[string]string)
+func (fdb *FluxDB) VerifyAllShardsWritten(ctx context.Context) (uint64, bstream.BlockRef, error) {
+	seen := make(map[string]bstream.BlockRef)
+	highestHeight := uint64(0)
+
 	if err := fdb.store.ScanLastShardsWrittenCheckpoint(ctx, []byte("shard-"), func(key []byte, value []byte) error {
-		// FIXME (height): Will need to revisit that part if we start to migrate to a "height" fluxdb system
-		_, block, err := unmarshalCheckpoint(value)
+		height, block, err := unmarshalCheckpoint(value)
 		if err != nil {
 			return fmt.Errorf("unable to unmarshal checkpoint: %w", err)
 		}
 
-		seen[string(bytes.TrimPrefix(key, []byte("shard-")))] = block.ID()
+		seen[string(bytes.TrimPrefix(key, []byte("shard-")))] = block
+		if height > highestHeight {
+			highestHeight = height
+		}
+
 		return nil
 	}); err != nil {
-		return "", err
+		return 0, bstream.BlockRefEmpty, err
 	}
 
-	shardToBlockID := make(map[string]string)
+	shardToBlock := make(map[string]bstream.BlockRef)
 
-	var referenceBlock string
+	var referenceBlock bstream.BlockRef
 	for i := 0; i < fdb.shardCount; i++ {
 		key := fmt.Sprintf("%03d", i)
-		shardToBlockID[key] = seen[key]
+		seenBlock, found := seen[key]
+		if !found {
+			seenBlock = bstream.BlockRefEmpty
+		}
+
+		shardToBlock[key] = seenBlock
 		if i == 0 {
-			referenceBlock = seen[key]
+			referenceBlock = seenBlock
 		}
 	}
 
 	var faultyShards []string
 	var missingShards []string
-	for key, seenBlock := range shardToBlockID {
-		if seenBlock == "" {
+	for key, seenBlock := range shardToBlock {
+		if bstream.EqualsBlockRefs(seenBlock, bstream.BlockRefEmpty) {
 			missingShards = append(missingShards, key)
 		}
-		if seenBlock != referenceBlock {
+		if !bstream.EqualsBlockRefs(seenBlock, referenceBlock) {
 			faultyShards = append(faultyShards, key)
 		}
 	}
@@ -108,13 +119,15 @@ func (fdb *FluxDB) VerifyAllShardsWritten(ctx context.Context) (string, error) {
 		err = fmt.Errorf("shards not matching reference block %s (shards %v): %w", referenceBlock, faultyShards, err)
 	}
 
-	return referenceBlock, err
-
+	return highestHeight, referenceBlock, err
 }
 
-func (fdb *FluxDB) UpdateGlobalLastBlockID(ctx context.Context, blockID string) error {
+func (fdb *FluxDB) WriteShardingFinalCheckpoint(ctx context.Context, height uint64, block bstream.BlockRef) error {
 	batch := fdb.store.NewBatch(zlog)
-	batch.SetLastCheckpoint(lastCheckpointRowKey, []byte(blockID))
+	if err := fdb.setLastCheckpoint(batch, height, block); err != nil {
+		return fmt.Errorf("set last checkpoint: %w", err)
+	}
+
 	if err := batch.Flush(ctx); err != nil {
 		return fmt.Errorf("flushing last block marker: %w", err)
 	}
@@ -155,17 +168,7 @@ func (fdb *FluxDB) writeBlock(ctx context.Context, batch store.Batch, w *WriteRe
 		}
 	}
 
-	checkpoint := pbfluxdb.Checkpoint{
-		Height: w.Height,
-		Block:  &pbbstream.BlockRef{Id: w.BlockRef.ID(), Num: w.BlockRef.Num()},
-	}
-	last, err := proto.Marshal(&checkpoint)
-	if err != nil {
-		return fmt.Errorf("unable to marshal checkpoint: %w", err)
-	}
-
-	batch.SetLastCheckpoint(fdb.lastCheckpointKey(), last)
-	return nil
+	return fdb.setLastCheckpoint(batch, w.Height, w.BlockRef)
 }
 
 func (fdb *FluxDB) isNextBlock(ctx context.Context, writeHeight uint64) error {
@@ -183,5 +186,18 @@ func (fdb *FluxDB) isNextBlock(ctx context.Context, writeHeight uint64) error {
 		return fmt.Errorf("block %d does not follow last block %d in db", writeHeight, lastHeight)
 	}
 
+	return nil
+}
+
+func (fdb *FluxDB) setLastCheckpoint(batch store.Batch, height uint64, lastBlock bstream.BlockRef) error {
+	cellData, err := proto.Marshal(&pbfluxdb.Checkpoint{
+		Height: height,
+		Block:  &pbbstream.BlockRef{Id: lastBlock.ID(), Num: lastBlock.Num()},
+	})
+	if err != nil {
+		return fmt.Errorf("unable to marshal checkpoint: %w", err)
+	}
+
+	batch.SetLastCheckpoint(fdb.lastCheckpointKey(), cellData)
 	return nil
 }
