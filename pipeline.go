@@ -63,11 +63,6 @@ func (fdb *FluxDB) BuildPipeline(getBlockID bstream.EternalSourceStartBackAtBloc
 	preprocessor := NewPreprocessBlock(fdb.mapper)
 	sf := bstream.SourceFromRefFactory(func(startBlock bstream.BlockRef, h bstream.Handler) bstream.Source {
 
-		// Exclusive, we never want to process the same block
-		// twice. When doing reprocessing, we'll need to provide the block
-		// just before.
-		gate := bstream.NewBlockIDGate(startBlock.ID(), bstream.GateExclusive, h, bstream.GateOptionWithLogger(zlog))
-
 		forkableOptions := []forkable.Option{forkable.WithLogger(zlog), forkable.WithFilters(forkable.StepNew | forkable.StepIrreversible)}
 		if !bstream.EqualsBlockRefs(startBlock, bstream.BlockRefEmpty) {
 			// Only when we do **not** start from the beginning (i.e. startBlock is the empty block ref), that the
@@ -76,7 +71,8 @@ func (fdb *FluxDB) BuildPipeline(getBlockID bstream.EternalSourceStartBackAtBloc
 			forkableOptions = append(forkableOptions, forkable.WithExclusiveLIB(startBlock))
 		}
 
-		forkHandler := forkable.New(gate, forkableOptions...)
+		// no need for a gate here, since we are starting with ExclusiveLIB, so at startBlock+1
+		forkHandler := forkable.New(h, forkableOptions...)
 
 		liveSourceFactory := bstream.SourceFactory(func(subHandler bstream.Handler) bstream.Source {
 			return blockstream.NewSource(
