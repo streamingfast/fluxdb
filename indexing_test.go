@@ -32,9 +32,11 @@ func TestIndexSinglet_MarshalUnmarshalBinary(t *testing.T) {
 			"no_rows",
 			testTablet(""),
 			&TabletIndex{
-				AtHeight:           6,
-				SquelchCount:       2,
-				PrimaryKeyToHeight: &primaryKeyToHeightMap{bytesMap: &bytesMap{}},
+				AtHeight:     6,
+				SquelchCount: 2,
+				PrimaryKeyToHeight: &primaryKeyToHeightMap{bytesMap: &bytesMap{
+					mappings: map[string]interface{}{}, // empty map, not nil map
+				}},
 			},
 		},
 		{

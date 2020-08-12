@@ -266,7 +266,7 @@ func (s indexSinglet) Entry(height uint64, value []byte) (SingletEntry, error) {
 			index.PrimaryKeyToHeight.put(entry.PrimaryKey, entry.Height)
 		}
 	} else {
-		index.PrimaryKeyToHeight = &primaryKeyToHeightMap{bytesMap: &bytesMap{mappings: nil}}
+		index.PrimaryKeyToHeight = newPrimaryKeyToHeightMap(8) // 8 is our reference small size
 	}
 
 	return newIndexSingletEntry(s, index), nil
