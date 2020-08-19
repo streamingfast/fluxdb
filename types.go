@@ -16,8 +16,11 @@ package fluxdb
 
 import (
 	"encoding/hex"
+	"fmt"
 
 	"github.com/dfuse-io/bstream"
+	pbbstream "github.com/dfuse-io/pbgo/dfuse/bstream/v1"
+	pbfluxdb "github.com/dfuse-io/pbgo/dfuse/fluxdb/v1"
 )
 
 const collectionBytes = 2
@@ -46,12 +49,84 @@ type WriteRequest struct {
 	BlockRef bstream.BlockRef
 }
 
+func NewWriteRequestFromProto(request *pbfluxdb.WriteRequest) (*WriteRequest, error) {
+	r := &WriteRequest{
+		SingletEntries: make([]SingletEntry, len(request.SingletEntries)),
+		TabletRows:     make([]TabletRow, len(request.TabletRows)),
+		Height:         request.Height,
+		BlockRef:       bstream.NewBlockRef(request.Block.Id, request.Block.Num),
+	}
+
+	var err error
+	for i, entry := range request.SingletEntries {
+		if r.SingletEntries[i], err = NewSingletEntryFromStorage(entry.Key, entry.Value); err != nil {
+			return nil, fmt.Errorf("singlet entry: %w", err)
+		}
+	}
+
+	for i, row := range request.TabletRows {
+		if r.TabletRows[i], err = NewTabletRowFromStorage(row.Key, row.Value); err != nil {
+			return nil, fmt.Errorf("tablet row: %w", err)
+		}
+	}
+
+	return r, nil
+}
+
 func (r *WriteRequest) AppendSingletEntry(entry SingletEntry) {
 	r.SingletEntries = append(r.SingletEntries, entry)
 }
 
 func (r *WriteRequest) AppendTabletRow(row TabletRow) {
 	r.TabletRows = append(r.TabletRows, row)
+}
+
+func (r *WriteRequest) ToProto() (*pbfluxdb.WriteRequest, error) {
+	request := &pbfluxdb.WriteRequest{
+		SingletEntries: make([]*pbfluxdb.WriteEntry, len(r.SingletEntries)),
+		TabletRows:     make([]*pbfluxdb.WriteEntry, len(r.TabletRows)),
+		Height:         r.Height,
+		Block:          &pbbstream.BlockRef{Num: r.BlockRef.Num(), Id: r.BlockRef.ID()},
+	}
+
+	var err error
+	for i, entry := range r.SingletEntries {
+		if request.SingletEntries[i], err = singletEntryToProto(entry); err != nil {
+			return nil, fmt.Errorf("singlet entry: %w", err)
+		}
+	}
+
+	for i, row := range r.TabletRows {
+		if request.TabletRows[i], err = tabletRowToProto(row); err != nil {
+			return nil, fmt.Errorf("table row: %w", err)
+		}
+	}
+
+	return request, nil
+}
+
+func singletEntryToProto(entry SingletEntry) (*pbfluxdb.WriteEntry, error) {
+	return genericElementToProto(KeyForSingletEntry(entry), entry)
+}
+
+func tabletRowToProto(row TabletRow) (*pbfluxdb.WriteEntry, error) {
+	return genericElementToProto(KeyForTabletRow(row), row)
+}
+
+type marshallerValue interface {
+	MarshalValue() ([]byte, error)
+}
+
+func genericElementToProto(key []byte, marshaller marshallerValue) (*pbfluxdb.WriteEntry, error) {
+	value, err := marshaller.MarshalValue()
+	if err != nil {
+		return nil, fmt.Errorf("marshal value: %w", err)
+	}
+
+	return &pbfluxdb.WriteEntry{
+		Key:   key,
+		Value: value,
+	}, nil
 }
 
 type bytesMap struct {

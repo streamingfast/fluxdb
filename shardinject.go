@@ -16,14 +16,16 @@ package fluxdb
 
 import (
 	"context"
-	"encoding/gob"
 	"fmt"
 	"io"
 	"strconv"
 	"strings"
 
+	"github.com/dfuse-io/dbin"
 	"github.com/dfuse-io/dstore"
+	pbfluxdb "github.com/dfuse-io/pbgo/dfuse/fluxdb/v1"
 	"github.com/dfuse-io/shutter"
+	"github.com/golang/protobuf/proto"
 	"go.uber.org/zap"
 )
 
@@ -42,28 +44,6 @@ func NewShardInjector(shardsStore dstore.Store, db *FluxDB) *ShardInjector {
 	}
 }
 
-func parseFileName(filename string) (first, last uint64, err error) {
-	vals := strings.Split(filename, "-")
-	if len(vals) != 2 {
-		err = fmt.Errorf("cannot parse filename %q", filename)
-		return
-	}
-
-	first64, err := strconv.ParseUint(vals[0], 10, 32)
-	if err != nil {
-		return 0, 0, err
-	}
-	first = uint64(first64)
-
-	last64, err := strconv.ParseUint(vals[1], 10, 32)
-	if err != nil {
-		return 0, 0, err
-	}
-	last = uint64(last64)
-
-	return
-}
-
 func (s *ShardInjector) Run() (err error) {
 	ctx, cancelInjector := context.WithCancel(context.Background())
 	s.OnTerminating(func(_ error) {
@@ -80,6 +60,7 @@ func (s *ShardInjector) Run() (err error) {
 	zlog.Info("starting back shard injector", zap.Stringer("block", startAfter))
 	startAfterNum := uint64(startAfter.Num())
 
+	// This expects an ordered walking of all files, so it's an important requierements on the backing store
 	err = s.shardsStore.Walk(ctx, "", "", func(filename string) error {
 		fileFirst, fileLast, err := parseFileName(filename)
 		if err != nil {
@@ -122,23 +103,67 @@ func (s *ShardInjector) Run() (err error) {
 	return nil
 }
 
+func parseFileName(filename string) (first, last uint64, err error) {
+	vals := strings.Split(filename, "-")
+	if len(vals) != 2 {
+		err = fmt.Errorf("cannot parse filename %q", filename)
+		return
+	}
+
+	first64, err := strconv.ParseUint(vals[0], 10, 32)
+	if err != nil {
+		return 0, 0, err
+	}
+	first = uint64(first64)
+
+	last64, err := strconv.ParseUint(vals[1], 10, 32)
+	if err != nil {
+		return 0, 0, err
+	}
+	last = uint64(last64)
+
+	return
+}
+
 func readWriteRequestsForBatch(reader io.Reader, startAfter uint64) ([]*WriteRequest, error) {
-	decoder := gob.NewDecoder(reader)
+	dbinDecoder := dbin.NewReader(reader)
+	contentType, version, err := dbinDecoder.ReadHeader()
+	if err != nil {
+		return nil, fmt.Errorf("read header: %w", err)
+	}
+
+	if contentType != shardBinaryContentType || version != shardBinaryVersion {
+		return nil, fmt.Errorf("file with content type %q and version %d is unsupported, supporting %q at version %d", contentType, version, shardBinaryContentType, shardBinaryVersion)
+	}
 
 	var requests []*WriteRequest
 	for {
-		req := &WriteRequest{}
-		err := decoder.Decode(req)
+		msg, err := dbinDecoder.ReadMessage()
+		if msg != nil {
+			protoRequest := pbfluxdb.WriteRequest{}
+			if proto.Unmarshal(msg, &protoRequest); err != nil {
+				return nil, fmt.Errorf("unmarshal request: %w", err)
+			}
+
+			req, err := NewWriteRequestFromProto(&protoRequest)
+			if err != nil {
+				return nil, fmt.Errorf("request from proto: %w", err)
+			}
+
+			if req.Height <= startAfter {
+				continue
+			}
+
+			requests = append(requests, req)
+			continue
+		}
+
 		if err == io.EOF {
 			return requests, nil
 		}
-		if err != nil {
-			return nil, fmt.Errorf("unable to read WriteRequest: %w", err)
-		}
-		if req.Height <= startAfter {
-			continue
-		}
-		requests = append(requests, req)
 
+		if err != nil {
+			return nil, fmt.Errorf("read write request message: %w", err)
+		}
 	}
 }

@@ -236,6 +236,15 @@ func NewTabletRow(tablet Tablet, key []byte, value []byte) (TabletRow, error) {
 	return tablet.Row(height, primaryKey, value)
 }
 
+func NewTabletRowFromStorage(key []byte, value []byte) (TabletRow, error) {
+	tablet, err := NewTablet(key)
+	if err != nil {
+		return nil, fmt.Errorf("new tablet: %w", err)
+	}
+
+	return NewTabletRow(tablet, key, value)
+}
+
 // TabletRowKey represents a fully well-formed tablet row key as written to the underlying
 // storage engine. This key is always represented in the same but variable format:
 //
@@ -266,13 +275,8 @@ func KeyForTabletRowParts(tablet Tablet, height uint64, primaryKey []byte) (out 
 }
 
 func (k TabletRowKey) String() string {
-	tablet, err := NewTablet(k)
-	if err != nil {
-		return fmt.Sprintf("#Error<Invalid tablet key %q: %s>", Key(k), err)
-	}
-
 	// We pass a nil value because we are only interested by the key formatting here
-	row, err := NewTabletRow(tablet, k, nil)
+	row, err := NewTabletRowFromStorage(k, nil)
 	if err != nil {
 		return fmt.Sprintf("#Error<Invalid tablet row %q: %s>", Key(k), err)
 	}

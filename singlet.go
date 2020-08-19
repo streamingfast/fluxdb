@@ -210,6 +210,15 @@ func NewSingletEntry(singlet Singlet, key []byte, value []byte) (SingletEntry, e
 	return singlet.Entry(math.MaxUint64-bigEndian.Uint64(key[heightOffset:]), value)
 }
 
+func NewSingletEntryFromStorage(key []byte, value []byte) (SingletEntry, error) {
+	singlet, err := NewSinglet(key)
+	if err != nil {
+		return nil, fmt.Errorf("new singlet: %w", err)
+	}
+
+	return NewSingletEntry(singlet, key, value)
+}
+
 // SingletEntryKey represents a fully well-formed singlet entry key as written to the underlying
 // storage engine. This key is always represented in the same but variable format:
 //
@@ -233,15 +242,10 @@ func KeyForSingletEntry(entry SingletEntry) (out SingletEntryKey) {
 }
 
 func (k SingletEntryKey) String() string {
-	singlet, err := NewSinglet(k)
+	// We pass a nil value because we are only interested by the key formatting here
+	entry, err := NewSingletEntryFromStorage(k, nil)
 	if err != nil {
 		return fmt.Sprintf("#Error<Invalid singlet key %q: %s>", Key(k), err)
-	}
-
-	// We pass a nil value because we are only interested by the key formatting here
-	entry, err := NewSingletEntry(singlet, []byte(k), nil)
-	if err != nil {
-		return fmt.Sprintf("#Error<Invalid singlet entry %q: %s>", Key(k), err)
 	}
 
 	return entry.String()

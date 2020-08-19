@@ -5,13 +5,14 @@ require (
 	github.com/abourget/llerrgroup v0.2.0
 	github.com/cespare/xxhash/v2 v2.1.1 // indirect
 	github.com/dfuse-io/bstream v0.0.2-0.20200730171716-a46b819bf678
+	github.com/dfuse-io/dbin v0.0.0-20200406215642-ec7f22e794eb
 	github.com/dfuse-io/derr v0.0.0-20200730183817-a747f6f333ad
 	github.com/dfuse-io/dmetrics v0.0.0-20200508170817-3b8cb01fee68 // indirect
-	github.com/dfuse-io/dstore v0.1.0
+	github.com/dfuse-io/dstore v0.1.1-0.20200819043022-7cdd92b6d8a9
 	github.com/dfuse-io/dtracing v0.0.0-20200417133307-c09302668d0c
 	github.com/dfuse-io/kvdb v0.0.2-0.20200710185837-6525655ea360
 	github.com/dfuse-io/logging v0.0.0-20200417143534-5e26069a5e39
-	github.com/dfuse-io/pbgo v0.0.6-0.20200729035815-5da1dbc5e2ac
+	github.com/dfuse-io/pbgo v0.0.6-0.20200819050623-1bfd94a6868d
 	github.com/dfuse-io/shutter v1.4.1-0.20200407040739-f908f9ab727f
 	github.com/golang/protobuf v1.4.2
 	github.com/gorilla/mux v1.7.3 // indirect
