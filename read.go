@@ -389,6 +389,10 @@ func (fdb *FluxDB) CheckCleanDBForSharding() error {
 	return errors.New("live injector's marker of last written block present, expected no element to exist")
 }
 
+func (fdb *FluxDB) finalCheckpointKey() []byte {
+	return lastCheckpointRowKey
+}
+
 func (fdb *FluxDB) lastCheckpointKey() []byte {
 	if fdb.IsSharding() {
 		return []byte(fmt.Sprintf("shard-%03d", fdb.shardIndex))

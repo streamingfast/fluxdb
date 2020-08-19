@@ -124,7 +124,7 @@ func (fdb *FluxDB) VerifyAllShardsWritten(ctx context.Context) (uint64, bstream.
 
 func (fdb *FluxDB) WriteShardingFinalCheckpoint(ctx context.Context, height uint64, block bstream.BlockRef) error {
 	batch := fdb.store.NewBatch(zlog)
-	if err := fdb.setLastCheckpoint(batch, height, block); err != nil {
+	if err := fdb.setFinalCheckpoint(batch, height, block); err != nil {
 		return fmt.Errorf("set last checkpoint: %w", err)
 	}
 
@@ -190,6 +190,14 @@ func (fdb *FluxDB) isNextBlock(ctx context.Context, writeHeight uint64) error {
 }
 
 func (fdb *FluxDB) setLastCheckpoint(batch store.Batch, height uint64, lastBlock bstream.BlockRef) error {
+	return fdb.setCheckpoint(batch, fdb.lastCheckpointKey(), height, lastBlock)
+}
+
+func (fdb *FluxDB) setFinalCheckpoint(batch store.Batch, height uint64, lastBlock bstream.BlockRef) error {
+	return fdb.setCheckpoint(batch, fdb.finalCheckpointKey(), height, lastBlock)
+}
+
+func (fdb *FluxDB) setCheckpoint(batch store.Batch, key []byte, height uint64, lastBlock bstream.BlockRef) error {
 	cellData, err := proto.Marshal(&pbfluxdb.Checkpoint{
 		Height: height,
 		Block:  &pbbstream.BlockRef{Id: lastBlock.ID(), Num: lastBlock.Num()},
@@ -198,6 +206,6 @@ func (fdb *FluxDB) setLastCheckpoint(batch store.Batch, height uint64, lastBlock
 		return fmt.Errorf("unable to marshal checkpoint: %w", err)
 	}
 
-	batch.SetLastCheckpoint(fdb.lastCheckpointKey(), cellData)
+	batch.SetLastCheckpoint(key, cellData)
 	return nil
 }

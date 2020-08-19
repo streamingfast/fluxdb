@@ -212,10 +212,10 @@ func (a *App) startReprocInjector(kvStore store.KVStore) error {
 		return nil
 	}
 
+	zlog.Info("all shards done injecting, setting checkpoint to last block", zap.Stringer("last_block", lastBlock))
 	err = db.WriteShardingFinalCheckpoint(ctx, height, lastBlock)
 	if err != nil {
-		zlog.Error("cannot update last block", zap.Error(err), zap.Stringer("last_block", lastBlock))
-		return fmt.Errorf("cannot update lastBlockID: %w", err)
+		return fmt.Errorf("cannot write final checkpoint: %w", err)
 	}
 
 	a.Shutdown(nil)

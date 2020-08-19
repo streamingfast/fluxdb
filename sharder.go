@@ -184,7 +184,7 @@ func (s *Sharder) writeShards() error {
 		eg.Go(func() error {
 			baseName := fmt.Sprintf("%03d/%010d-%010d", shardIndex, s.startBlock, s.stopBlock)
 
-			zlog.Debug("encoding shard",
+			zlog.Info("encoding shard",
 				zap.String("base_name", baseName),
 				zap.Int("shard_index", shardIndex),
 				zap.Int("request_count", s.statsByShard[shardIndex].requestCount),

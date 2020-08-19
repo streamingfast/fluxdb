@@ -14,11 +14,14 @@ import (
 	"github.com/dfuse-io/dstore"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 )
 
 var shardsStore = os.Getenv("FLUXDB_SHARDING_STORE_PATH")
 
 func TestSharding(t *testing.T) {
+	ctx := context.Background()
+
 	dir := shardsStore
 	if dir == "" {
 		var err error
@@ -79,18 +82,39 @@ func TestSharding(t *testing.T) {
 		injector := NewShardInjector(specificShardStore, db)
 		err = injector.Run()
 		require.NoError(t, err, "Unable to reinject all shards correctly for shard index %03d", i)
+
+		height, lastBlock, err := db.VerifyAllShardsWritten(ctx)
+		require.Equal(t, uint64(3), height)
+		require.Equal(t, uint64(3), lastBlock.Num())
+		require.Equal(t, "00000003aa", lastBlock.ID())
+
+		if err == nil {
+			zlog.Info("all shards done injecting, setting checkpoint to last block", zap.Stringer("last_block", lastBlock))
+			err = db.WriteShardingFinalCheckpoint(ctx, height, lastBlock)
+			require.NoError(t, err)
+		}
 	}
 
-	singlet1Entry, err := db.ReadSingletEntryAt(context.Background(), singlet1, 3, nil)
+	// Act like a standard (non-sharding) instance from this point
+	db.shardCount = 0
+	db.shardIndex = 0
+
+	height, blockRef, err := db.FetchLastWrittenCheckpoint(ctx)
+	require.NoError(t, err)
+	require.Equal(t, uint64(3), height)
+	require.Equal(t, uint64(3), blockRef.Num())
+	require.Equal(t, "00000003aa", blockRef.ID())
+
+	singlet1Entry, err := db.ReadSingletEntryAt(ctx, singlet1, 3, nil)
 	assert.Equal(t, singlet1.entry(t, 3, "s1 e #3"), singlet1Entry)
 
-	singlet2Entry, err := db.ReadSingletEntryAt(context.Background(), singlet2, 3, nil)
+	singlet2Entry, err := db.ReadSingletEntryAt(ctx, singlet2, 3, nil)
 	assert.Equal(t, singlet2.entry(t, 3, "s2 e #3"), singlet2Entry)
 
-	tablet1Rows, err := db.ReadTabletAt(context.Background(), 3, tablet1, nil)
+	tablet1Rows, err := db.ReadTabletAt(ctx, 3, tablet1, nil)
 	assert.Equal(t, []TabletRow{tablet1.row(t, 1, "001", "t1 r1 #1"), tablet1.row(t, 3, "002", "t1 r2 #3")}, tablet1Rows)
 
-	tablet2Rows, err := db.ReadTabletAt(context.Background(), 3, tablet2, nil)
+	tablet2Rows, err := db.ReadTabletAt(ctx, 3, tablet2, nil)
 	assert.Equal(t, []TabletRow{tablet2.row(t, 3, "001", "t2 r1 #3"), tablet2.row(t, 2, "002", "t2 r2 #2")}, tablet2Rows)
 }
 
