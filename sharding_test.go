@@ -18,27 +18,31 @@ import (
 )
 
 var shardsStore = os.Getenv("FLUXDB_SHARDING_STORE_PATH")
+var shardsScratchDirectory = os.Getenv("FLUXDB_SHARDING_SCRATCH_DIR")
 
-func TestSharding(t *testing.T) {
+func TestSharding_InMemory(t *testing.T) {
+	runTests(t, "")
+}
+
+func TestSharding_ScratchDirectory(t *testing.T) {
+	dir, cleanup := createTempDir(t, shardsScratchDirectory)
+	defer cleanup()
+
+	runTests(t, dir)
+}
+
+func runTests(t *testing.T, scratchDirectory string) {
 	ctx := context.Background()
 
-	dir := shardsStore
-	if dir == "" {
-		var err error
-		dir, err = ioutil.TempDir("", "fluxdb-sharding-tests")
-		require.NoError(t, err)
-		defer func() {
-			os.RemoveAll(dir)
-		}()
-	} else {
-		os.RemoveAll(dir)
-	}
+	storeDir, cleanup := createTempDir(t, shardsStore)
+	defer cleanup()
 
-	shardsStore, err := dstore.NewLocalStore(dir, "", "", true)
+	shardsStore, err := dstore.NewLocalStore(storeDir, "", "", true)
 	require.NoError(t, err)
 
 	shardCount := 2
-	sharder := NewSharder(shardsStore, shardCount, 1, 3)
+	sharder, err := NewSharder(shardsStore, scratchDirectory, shardCount, 1, 3)
+	require.NoError(t, err)
 
 	tablet1 := newTestTablet("tb1")
 	tablet2 := newTestTablet("tb2")
@@ -76,7 +80,7 @@ func TestSharding(t *testing.T) {
 	for i := 0; i < shardCount; i++ {
 		db.shardIndex = i
 
-		specificShardStore, err := dstore.NewLocalStore(path.Join(dir, fmt.Sprintf("%03d", i)), "", "", false)
+		specificShardStore, err := dstore.NewLocalStore(path.Join(storeDir, fmt.Sprintf("%03d", i)), "", "", false)
 		require.NoError(t, err)
 
 		injector := NewShardInjector(specificShardStore, db)
@@ -160,4 +164,20 @@ func bblock(id string) *bstream.Block {
 
 func fObj(request *WriteRequest) *forkable.ForkableObject {
 	return &forkable.ForkableObject{Step: forkable.StepIrreversible, Obj: request}
+}
+
+func createTempDir(t *testing.T, input string) (string, func()) {
+	if input == "" {
+		dir, err := ioutil.TempDir("", "fluxdb-sharding-tests-store")
+		require.NoError(t, err)
+
+		return dir, func() {
+			os.RemoveAll(dir)
+		}
+	}
+
+	// If you provided a valid input, we delete after first, so it's possible to
+	// inspect the final generated files after the tests have run.
+	os.RemoveAll(input)
+	return input, func() {}
 }

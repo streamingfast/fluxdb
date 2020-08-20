@@ -18,6 +18,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
+	"os"
+	"path"
 	"time"
 
 	"github.com/abourget/llerrgroup"
@@ -34,15 +37,16 @@ const shardBinaryContentType = "fwr"
 const shardBinaryVersion = 1
 
 type Sharder struct {
-	mapper      BlockMapper
-	shardsStore dstore.Store
-	startBlock  uint64
-	stopBlock   uint64
-	shardCount  int
+	mapper           BlockMapper
+	shardsStore      dstore.Store
+	scratchDirectory string
+	startBlock       uint64
+	stopBlock        uint64
+	shardCount       int
 
 	// A slice of shards, each shard is itself a slice of WriteRequest, one per block processed in this batch.
 	// So, assuming 2 shards with 5 blocks, that would yield `[0][#5, #6, #7, #8, #9], [1][#5, #6, #7, #8, #9]`.
-	buffers      []*bytes.Buffer
+	writers      []io.Writer
 	dbinEncoders []*dbin.Writer
 	statsByShard []stats
 }
@@ -53,36 +57,41 @@ type stats struct {
 	rowsCount    int
 }
 
-func NewSharder(shardsStore dstore.Store, shardCount int, startBlock, stopBlock uint64) *Sharder {
+func NewSharder(shardsStore dstore.Store, scratchDirectory string, shardCount int, startBlock, stopBlock uint64) (*Sharder, error) {
 	s := &Sharder{
-		buffers:      make([]*bytes.Buffer, shardCount),
+		writers:      make([]io.Writer, shardCount),
 		dbinEncoders: make([]*dbin.Writer, shardCount),
 		statsByShard: make([]stats, shardCount),
 
-		shardCount:  shardCount,
-		shardsStore: shardsStore,
-		startBlock:  startBlock,
-		stopBlock:   stopBlock,
+		shardCount:       shardCount,
+		shardsStore:      shardsStore,
+		scratchDirectory: scratchDirectory,
+		startBlock:       startBlock,
+		stopBlock:        stopBlock,
 	}
 
-	// FIXME: This is currently all hold in RAM which consumed a lot of RAMs in certain
-	//        cases. It would be better if we would write to either a temporary local storage
-	//        and then copying over to final destination. Writing directly to storage is probably
-	//        not possible for remote backend like GCP or S3 because it might take few minutes to
-	//        complete the sharding process and it's likely that this is not possible using
-	//        plain HTTP connections that are meant for shorter cycles.
 	for i := 0; i < shardCount; i++ {
-		buf := bytes.NewBuffer(nil)
-		s.buffers[i] = buf
-		s.dbinEncoders[i] = dbin.NewWriter(buf)
+		var writer io.Writer
+		if s.scratchDirectory == "" {
+			writer = bytes.NewBuffer(nil)
+		} else {
+			file, err := os.OpenFile(path.Join(s.scratchDirectory, fmt.Sprintf("%s.dbin.tmp", shardDirectory(i))), os.O_RDWR|os.O_CREATE|os.O_TRUNC, os.ModePerm)
+			if err != nil {
+				return nil, fmt.Errorf("scratch directory for shard %d: %w", i, err)
+			}
+
+			writer = file
+		}
+
+		s.writers[i] = writer
 
 		// This is coded to never fail, so we safely ignore the `err` return value
+		s.dbinEncoders[i] = dbin.NewWriter(writer)
 		s.dbinEncoders[i].WriteHeader(shardBinaryContentType, shardBinaryVersion)
-
 		s.statsByShard[i] = stats{requestCount: 0, entriesCount: 0, rowsCount: 0}
 	}
 
-	return s
+	return s, nil
 }
 
 func (s *Sharder) ProcessBlock(rawBlk *bstream.Block, rawObj interface{}) error {
@@ -173,16 +182,16 @@ func (s *Sharder) goesToShard(key []byte) int {
 
 func (s *Sharder) writeShards() error {
 	eg := llerrgroup.New(12)
-	for shardIndex, buffer := range s.buffers {
+	for shardIndex, writer := range s.writers {
 		if eg.Stop() {
 			break
 		}
 
 		shardIndex := shardIndex
-		buffer := buffer
+		writer := writer
 
 		eg.Go(func() error {
-			baseName := fmt.Sprintf("%03d/%010d-%010d", shardIndex, s.startBlock, s.stopBlock)
+			baseName := path.Join(shardDirectory(shardIndex), fmt.Sprintf("%010d-%010d", s.startBlock, s.stopBlock))
 
 			zlog.Info("encoding shard",
 				zap.String("base_name", baseName),
@@ -195,14 +204,63 @@ func (s *Sharder) writeShards() error {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 			defer cancel()
 
-			err := s.shardsStore.WriteObject(ctx, baseName, bytes.NewReader(buffer.Bytes()))
+			var err error
+			if v, ok := writer.(*bytes.Buffer); ok {
+				err = s.writeShardRequestsFromMemory(ctx, baseName, v)
+			} else if v, ok := writer.(*os.File); ok {
+				err = s.writeShardRequestsFromFile(ctx, baseName, v)
+			} else {
+				panic(fmt.Errorf("don't kown how to handle shard requests writer of type %T", writer))
+			}
+
 			if err != nil {
 				return fmt.Errorf("unable to correctly write shard %d: %w", shardIndex, err)
 			}
 
-			buffer.Truncate(0)
 			return nil
 		})
 	}
 	return eg.Wait()
+}
+
+func (s *Sharder) writeShardRequestsFromMemory(ctx context.Context, name string, buffer *bytes.Buffer) error {
+	err := s.shardsStore.WriteObject(ctx, name, bytes.NewReader(buffer.Bytes()))
+	if err != nil {
+		return err
+	}
+
+	buffer.Truncate(0)
+	return nil
+}
+
+func (s *Sharder) writeShardRequestsFromFile(ctx context.Context, name string, file *os.File) (err error) {
+	defer file.Close()
+
+	offset, err := file.Seek(0, 0)
+	if err != nil {
+		return fmt.Errorf("seek file: %w", err)
+	}
+
+	if offset != 0 {
+		return fmt.Errorf("unable to return to start of file, offset %d received is not 0", offset)
+	}
+
+	err = s.shardsStore.WriteObject(ctx, name, file)
+	if err != nil {
+		return fmt.Errorf("write to store: %w", err)
+	}
+
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close file: %w", err)
+	}
+
+	if err := os.Remove(file.Name()); err != nil {
+		return fmt.Errorf("remove file: %w", err)
+	}
+
+	return nil
+}
+
+func shardDirectory(shardIndex int) string {
+	return fmt.Sprintf("%03d", shardIndex)
 }
