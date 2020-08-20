@@ -70,12 +70,18 @@ func NewSharder(shardsStore dstore.Store, scratchDirectory string, shardCount in
 		stopBlock:        stopBlock,
 	}
 
+	if scratchDirectory != "" {
+		if err := os.MkdirAll(scratchDirectory, os.ModePerm); err != nil {
+			return nil, fmt.Errorf("unable to create scratch directory: %w", err)
+		}
+	}
+
 	for i := 0; i < shardCount; i++ {
 		var writer io.Writer
 		if s.scratchDirectory == "" {
 			writer = bytes.NewBuffer(nil)
 		} else {
-			file, err := os.OpenFile(path.Join(s.scratchDirectory, fmt.Sprintf("%s.dbin.tmp", shardDirectory(i))), os.O_RDWR|os.O_CREATE|os.O_TRUNC, os.ModePerm)
+			file, err := os.OpenFile(path.Join(s.scratchDirectory, fmt.Sprintf("shard-%03d-%s.dbin.tmp", i, segmentIdentifier(s.startBlock, s.stopBlock))), os.O_RDWR|os.O_CREATE|os.O_TRUNC, os.ModePerm)
 			if err != nil {
 				return nil, fmt.Errorf("scratch directory for shard %d: %w", i, err)
 			}
@@ -191,7 +197,7 @@ func (s *Sharder) writeShards() error {
 		writer := writer
 
 		eg.Go(func() error {
-			baseName := path.Join(shardDirectory(shardIndex), fmt.Sprintf("%010d-%010d", s.startBlock, s.stopBlock))
+			baseName := path.Join(shardDirectory(shardIndex), segmentIdentifier(s.startBlock, s.stopBlock))
 
 			zlog.Info("encoding shard",
 				zap.String("base_name", baseName),
@@ -263,4 +269,8 @@ func (s *Sharder) writeShardRequestsFromFile(ctx context.Context, name string, f
 
 func shardDirectory(shardIndex int) string {
 	return fmt.Sprintf("%03d", shardIndex)
+}
+
+func segmentIdentifier(startBlock, stopBlock uint64) string {
+	return fmt.Sprintf("%010d-%010d", startBlock, stopBlock)
 }
