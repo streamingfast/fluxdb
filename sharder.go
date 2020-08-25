@@ -55,6 +55,8 @@ type stats struct {
 	requestCount int
 	entriesCount int
 	rowsCount    int
+	lastBlockRef bstream.BlockRef
+	lastHeight   uint64
 }
 
 func NewSharder(shardsStore dstore.Store, scratchDirectory string, shardCount int, startBlock, stopBlock uint64) (*Sharder, error) {
@@ -94,7 +96,7 @@ func NewSharder(shardsStore dstore.Store, scratchDirectory string, shardCount in
 		// This is coded to never fail, so we safely ignore the `err` return value
 		s.dbinEncoders[i] = dbin.NewWriter(writer)
 		s.dbinEncoders[i].WriteHeader(shardBinaryContentType, shardBinaryVersion)
-		s.statsByShard[i] = stats{requestCount: 0, entriesCount: 0, rowsCount: 0}
+		s.statsByShard[i] = stats{requestCount: 0, entriesCount: 0, rowsCount: 0, lastBlockRef: bstream.BlockRefEmpty, lastHeight: 0}
 	}
 
 	return s, nil
@@ -173,6 +175,8 @@ func (s *Sharder) ProcessBlock(rawBlk *bstream.Block, rawObj interface{}) error 
 		s.statsByShard[shardIndex].requestCount++
 		s.statsByShard[shardIndex].entriesCount += len(protoRequest.SingletEntries)
 		s.statsByShard[shardIndex].rowsCount += len(protoRequest.TabletRows)
+		s.statsByShard[shardIndex].lastBlockRef = shardedRequest.BlockRef
+		s.statsByShard[shardIndex].lastHeight = shardedRequest.Height
 	}
 
 	return nil
@@ -199,12 +203,15 @@ func (s *Sharder) writeShards() error {
 		eg.Go(func() error {
 			baseName := path.Join(shardDirectory(shardIndex), segmentIdentifier(s.startBlock, s.stopBlock))
 
+			shardStats := s.statsByShard[shardIndex]
 			zlog.Info("encoding shard",
 				zap.String("base_name", baseName),
 				zap.Int("shard_index", shardIndex),
-				zap.Int("request_count", s.statsByShard[shardIndex].requestCount),
-				zap.Int("entry_count", s.statsByShard[shardIndex].entriesCount),
-				zap.Int("row_count", s.statsByShard[shardIndex].rowsCount),
+				zap.Int("request_count", shardStats.requestCount),
+				zap.Int("entry_count", shardStats.entriesCount),
+				zap.Int("row_count", shardStats.rowsCount),
+				zap.Stringer("last_block", shardStats.lastBlockRef),
+				zap.Uint64("last_height", shardStats.lastHeight),
 			)
 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
