@@ -31,38 +31,67 @@ import (
 var ErrCleanSourceStop = errors.New("clean source stop")
 
 func BuildReprocessingPipeline(
-	mapper BlockMapper,
+	blockFilter func(blk *bstream.Block) error,
+	blockMapper BlockMapper,
+	startBlockResolver bstream.StartBlockResolver,
 	handler bstream.Handler,
 	blocksStore dstore.Store,
 	startHeight uint64,
-	numBlocksBeforeStart uint64,
-	parallelDownloadCount int,
-) bstream.Source {
-	gate := bstream.NewBlockNumGate(startHeight, bstream.GateInclusive, handler, bstream.GateOptionWithLogger(zlog))
-	gate.MaxHoldOff = 1000
+) (bstream.Source, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+	defer cancel()
 
-	forkableSource := forkable.New(gate, forkable.WithLogger(zlog), forkable.WithFilters(forkable.StepIrreversible))
-
-	getBlocksFrom := startHeight
-	if getBlocksFrom > numBlocksBeforeStart {
-		getBlocksFrom = startHeight - numBlocksBeforeStart // Make sure you cover that irreversible block
+	resolvedStartBlock, previousIrreversibleID, err := startBlockResolver(ctx, startHeight)
+	if err != nil {
+		return nil, fmt.Errorf("start block resolver for block %d: %w", startHeight, err)
 	}
 
-	source := bstream.NewFileSource(
+	gate := bstream.NewBlockNumGate(startHeight, bstream.GateInclusive, handler, bstream.GateOptionWithLogger(zlog))
+
+	forkableOptions := []forkable.Option{forkable.WithLogger(zlog), forkable.WithFilters(forkable.StepIrreversible)}
+	if previousIrreversibleID != "" {
+		forkableOptions = append(forkableOptions, forkable.WithInclusiveLIB(bstream.NewBlockRef(previousIrreversibleID, resolvedStartBlock)))
+	}
+
+	forkableSource := forkable.New(gate, forkableOptions...)
+
+	fdbPreprocessor := NewPreprocessBlock(blockMapper)
+	filePreprocessor := bstream.PreprocessFunc(func(blk *bstream.Block) (interface{}, error) {
+		if blockFilter != nil {
+			err := blockFilter(blk)
+			if err != nil {
+				return nil, fmt.Errorf("block filter: %w", err)
+			}
+		}
+
+		return fdbPreprocessor(blk)
+	})
+
+	return bstream.NewFileSource(
 		blocksStore,
-		getBlocksFrom,
-		parallelDownloadCount,
-		NewPreprocessBlock(mapper),
+		resolvedStartBlock,
+		2,
+		filePreprocessor,
 		forkableSource,
 		bstream.FileSourceWithLogger(zlog),
-	)
-	return source
+	), nil
 }
 
-func (fdb *FluxDB) BuildPipeline(getBlockID bstream.EternalSourceStartBackAtBlock, handler bstream.Handler, blocksStore dstore.Store, publisherAddr string, parallelDownloadCount int) {
-	preprocessor := NewPreprocessBlock(fdb.mapper)
-	sf := bstream.SourceFromRefFactory(func(startBlock bstream.BlockRef, h bstream.Handler) bstream.Source {
+func (fdb *FluxDB) BuildPipeline(getBlockID bstream.EternalSourceStartBackAtBlock, handler bstream.Handler, blocksStore dstore.Store, blockStreamAddr string) {
+	fdbPreprocessor := NewPreprocessBlock(fdb.blockMapper)
 
+	preprocessor := bstream.PreprocessFunc(func(blk *bstream.Block) (interface{}, error) {
+		if fdb.blockFilter != nil {
+			err := fdb.blockFilter(blk)
+			if err != nil {
+				return nil, fmt.Errorf("block filter: %w", err)
+			}
+		}
+
+		return fdbPreprocessor(blk)
+	})
+
+	sf := bstream.SourceFromRefFactory(func(startBlock bstream.BlockRef, h bstream.Handler) bstream.Source {
 		forkableOptions := []forkable.Option{forkable.WithLogger(zlog), forkable.WithFilters(forkable.StepNew | forkable.StepIrreversible)}
 		if !bstream.EqualsBlockRefs(startBlock, bstream.BlockRefEmpty) {
 			// Only when we do **not** start from the beginning (i.e. startBlock is the empty block ref), that the
@@ -77,7 +106,7 @@ func (fdb *FluxDB) BuildPipeline(getBlockID bstream.EternalSourceStartBackAtBloc
 		liveSourceFactory := bstream.SourceFactory(func(subHandler bstream.Handler) bstream.Source {
 			return blockstream.NewSource(
 				context.Background(),
-				publisherAddr,
+				blockStreamAddr,
 				250,
 				bstream.NewPreprocessor(preprocessor, subHandler),
 			)
@@ -87,7 +116,7 @@ func (fdb *FluxDB) BuildPipeline(getBlockID bstream.EternalSourceStartBackAtBloc
 			fs := bstream.NewFileSource(
 				blocksStore,
 				startBlock.Num(),
-				parallelDownloadCount,
+				2,
 				preprocessor,
 				subHandler,
 			)

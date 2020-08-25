@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/dfuse-io/bstream"
 	"github.com/dfuse-io/dstore"
 	"github.com/dfuse-io/fluxdb"
 	"github.com/dfuse-io/fluxdb/store"
@@ -50,22 +51,25 @@ type Config struct {
 	ReprocInjectorShardIndex uint64
 }
 
-type App struct {
-	*shutter.Shutter
-	config *Config
-
-	mapper       fluxdb.BlockMapper
-	onServerMode func(db *fluxdb.FluxDB)
-	onInjectMode func(db *fluxdb.FluxDB)
+type Modules struct {
+	BlockFilter        func(blk *bstream.Block) error
+	BlockMapper        fluxdb.BlockMapper
+	StartBlockResolver bstream.StartBlockResolver
+	OnServerMode       func(db *fluxdb.FluxDB)
+	OnInjectMode       func(db *fluxdb.FluxDB)
 }
 
-func New(config *Config, mapper fluxdb.BlockMapper, onServerMode func(db *fluxdb.FluxDB), onInjectMode func(db *fluxdb.FluxDB)) *App {
+type App struct {
+	*shutter.Shutter
+	config  *Config
+	modules *Modules
+}
+
+func New(config *Config, modules *Modules) *App {
 	return &App{
-		Shutter:      shutter.New(),
-		config:       config,
-		mapper:       mapper,
-		onServerMode: onServerMode,
-		onInjectMode: onInjectMode,
+		Shutter: shutter.New(),
+		config:  config,
+		modules: modules,
 	}
 }
 
@@ -101,7 +105,7 @@ func (a *App) Run() error {
 }
 
 func (a *App) startStandard(blocksStore dstore.Store, kvStore store.KVStore) error {
-	db := fluxdb.New(kvStore, a.mapper)
+	db := fluxdb.New(kvStore, a.modules.BlockFilter, a.modules.BlockMapper)
 
 	zlog.Info("initiating fluxdb handler")
 	fluxDBHandler := fluxdb.NewHandler(db)
@@ -109,14 +113,14 @@ func (a *App) startStandard(blocksStore dstore.Store, kvStore store.KVStore) err
 	db.SpeculativeWritesFetcher = fluxDBHandler.FetchSpeculativeWrites
 	db.HeadBlock = fluxDBHandler.HeadBlock
 
-	a.OnTerminating(func(e error) {
+	a.OnTerminating(func(_ error) {
 		db.Shutdown(nil)
 	})
 
 	db.OnTerminated(a.Shutdown)
 
 	if a.config.EnableInjectMode || a.config.EnablePipeline {
-		db.BuildPipeline(fluxDBHandler.InitializeStartBlockID, fluxDBHandler, blocksStore, a.config.BlockStreamAddr, 2)
+		db.BuildPipeline(fluxDBHandler.InitializeStartBlockID, fluxDBHandler, blocksStore, a.config.BlockStreamAddr)
 	}
 
 	if a.config.EnableInjectMode {
@@ -126,10 +130,10 @@ func (a *App) startStandard(blocksStore dstore.Store, kvStore store.KVStore) err
 
 	if a.config.EnableServerMode {
 		zlog.Info("invoking on server mode callback")
-		a.onServerMode(db)
+		a.modules.OnServerMode(db)
 	} else {
 		zlog.Info("invoking on inject mode callback")
-		a.onInjectMode(db)
+		a.modules.OnInjectMode(db)
 	}
 
 	go db.Launch(a.config.EnablePipeline)
@@ -154,8 +158,17 @@ func (a *App) startReprocSharder(blocksStore dstore.Store) error {
 		return fmt.Errorf("unable to create sharder: %w", err)
 	}
 
-	// FIXME: We should use the new `DPoSLIBNumAtBlockHeightFromBlockStore` to go back as far as needed!
-	source := fluxdb.BuildReprocessingPipeline(a.mapper, shardingPipe, blocksStore, a.config.ReprocSharderStartBlockNum, 400, 2)
+	source, err := fluxdb.BuildReprocessingPipeline(
+		a.modules.BlockFilter,
+		a.modules.BlockMapper,
+		a.modules.StartBlockResolver,
+		shardingPipe,
+		blocksStore,
+		a.config.ReprocSharderStartBlockNum,
+	)
+	if err != nil {
+		return fmt.Errorf("reprocessing pipeline: %w", err)
+	}
 
 	a.OnTerminating(func(e error) {
 		source.Shutdown(nil)
@@ -182,7 +195,7 @@ func (a *App) startReprocSharder(blocksStore dstore.Store) error {
 }
 
 func (a *App) startReprocInjector(kvStore store.KVStore) error {
-	db := fluxdb.New(kvStore, a.mapper)
+	db := fluxdb.New(kvStore, a.modules.BlockFilter, a.modules.BlockMapper)
 
 	db.SetSharding(int(a.config.ReprocInjectorShardIndex), int(a.config.ReprocShardCount))
 	if err := db.CheckCleanDBForSharding(); err != nil {

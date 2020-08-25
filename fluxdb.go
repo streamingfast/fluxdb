@@ -26,9 +26,10 @@ import (
 
 type FluxDB struct {
 	*shutter.Shutter
-	store  store.KVStore
-	source bstream.Source
-	mapper BlockMapper
+	store       store.KVStore
+	source      bstream.Source
+	blockMapper BlockMapper
+	blockFilter func(blk *bstream.Block) error
 
 	idxCache *indexCache
 
@@ -42,12 +43,13 @@ type FluxDB struct {
 	ready bool
 }
 
-func New(kvStore store.KVStore, mapper BlockMapper) *FluxDB {
+func New(kvStore store.KVStore, blockFilter func(blk *bstream.Block) error, blockMapper BlockMapper) *FluxDB {
 	return &FluxDB{
-		Shutter:  shutter.New(),
-		store:    kvStore,
-		mapper:   mapper,
-		idxCache: newIndexCache(),
+		Shutter:     shutter.New(),
+		store:       kvStore,
+		blockFilter: blockFilter,
+		blockMapper: blockMapper,
+		idxCache:    newIndexCache(),
 	}
 }
 

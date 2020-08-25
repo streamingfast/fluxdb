@@ -32,7 +32,7 @@ func NewTestDB(t *testing.T) (*FluxDB, func()) {
 	kvStore, err := kv.NewStore(fmt.Sprintf("badger://%s/test.db?createTables=true", tmp))
 	require.NoError(t, err)
 
-	db := New(kvStore, nil)
+	db := New(kvStore, nil, nil)
 	closer := func() {
 		db.Close()
 		os.RemoveAll(tmp)
