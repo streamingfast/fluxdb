@@ -25,6 +25,7 @@ import (
 	"github.com/dfuse-io/bstream/blockstream"
 	"github.com/dfuse-io/bstream/forkable"
 	"github.com/dfuse-io/dstore"
+	pbblockmeta "github.com/dfuse-io/pbgo/dfuse/blockmeta/v1"
 	"go.uber.org/zap"
 )
 
@@ -33,6 +34,7 @@ var ErrCleanSourceStop = errors.New("clean source stop")
 func BuildReprocessingPipeline(
 	blockFilter func(blk *bstream.Block) error,
 	blockMapper BlockMapper,
+	blockMeta pbblockmeta.BlockIDClient,
 	startBlockResolver bstream.StartBlockResolver,
 	handler bstream.Handler,
 	blocksStore dstore.Store,
@@ -50,7 +52,14 @@ func BuildReprocessingPipeline(
 
 	forkableOptions := []forkable.Option{forkable.WithLogger(zlog), forkable.WithFilters(forkable.StepIrreversible)}
 	if previousIrreversibleID != "" {
-		forkableOptions = append(forkableOptions, forkable.WithInclusiveLIB(bstream.NewBlockRef(previousIrreversibleID, resolvedStartBlock)))
+		irrRef := bstream.NewBlockRef(previousIrreversibleID, resolvedStartBlock)
+		zlog.Info("configuring inclusive LIB on forkable handler", zap.Stringer("irr_ref", irrRef))
+		forkableOptions = append(forkableOptions, forkable.WithInclusiveLIB(irrRef))
+	}
+
+	if blockMeta != nil {
+		zlog.Info("configuring irreversibility checker on forkable handler")
+		forkableOptions = append(forkableOptions, forkable.WithIrreversibilityChecker(blockMeta, 1*time.Second))
 	}
 
 	forkableSource := forkable.New(gate, forkableOptions...)
@@ -77,7 +86,13 @@ func BuildReprocessingPipeline(
 	), nil
 }
 
-func (fdb *FluxDB) BuildPipeline(getBlockID bstream.EternalSourceStartBackAtBlock, handler bstream.Handler, blocksStore dstore.Store, blockStreamAddr string) {
+func (fdb *FluxDB) BuildPipeline(
+	blockMeta pbblockmeta.BlockIDClient,
+	getBlockID bstream.EternalSourceStartBackAtBlock,
+	handler bstream.Handler,
+	blocksStore dstore.Store,
+	blockStreamAddr string,
+) {
 	fdbPreprocessor := NewPreprocessBlock(fdb.blockMapper)
 
 	preprocessor := bstream.PreprocessFunc(func(blk *bstream.Block) (interface{}, error) {
@@ -98,6 +113,10 @@ func (fdb *FluxDB) BuildPipeline(getBlockID bstream.EternalSourceStartBackAtBloc
 			// forkable should be initialized with an initial LIB value. Otherwise, when we start fresh, the forkable
 			// will automatically set its LIB to the first streamable block of the chain.
 			forkableOptions = append(forkableOptions, forkable.WithExclusiveLIB(startBlock))
+		}
+
+		if blockMeta != nil {
+			forkableOptions = append(forkableOptions, forkable.WithIrreversibilityChecker(blockMeta, 5*time.Second))
 		}
 
 		// no need for a gate here, since we are starting with ExclusiveLIB, so at startBlock+1
@@ -131,9 +150,7 @@ func (fdb *FluxDB) BuildPipeline(getBlockID bstream.EternalSourceStartBackAtBloc
 		)
 	})
 
-	es := bstream.NewDelegatingEternalSource(sf, getBlockID, handler, bstream.EternalSourceWithLogger(zlog))
-
-	fdb.source = es
+	fdb.source = bstream.NewDelegatingEternalSource(sf, getBlockID, handler, bstream.EternalSourceWithLogger(zlog))
 }
 
 // FluxDBHandler is a pipeline that writes in FluxDB

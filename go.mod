@@ -4,7 +4,7 @@ require (
 	github.com/Azure/azure-pipeline-go v0.2.2 // indirect
 	github.com/abourget/llerrgroup v0.2.0
 	github.com/cespare/xxhash/v2 v2.1.1 // indirect
-	github.com/dfuse-io/bstream v0.0.2-0.20200825173125-083d497745ad
+	github.com/dfuse-io/bstream v0.0.2-0.20200831174806-3a465dd49cb4
 	github.com/dfuse-io/dbin v0.0.0-20200406215642-ec7f22e794eb
 	github.com/dfuse-io/derr v0.0.0-20200730183817-a747f6f333ad
 	github.com/dfuse-io/dmetrics v0.0.0-20200508170817-3b8cb01fee68 // indirect

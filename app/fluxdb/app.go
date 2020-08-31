@@ -24,6 +24,7 @@ import (
 	"github.com/dfuse-io/dstore"
 	"github.com/dfuse-io/fluxdb"
 	"github.com/dfuse-io/fluxdb/store"
+	pbblockmeta "github.com/dfuse-io/pbgo/dfuse/blockmeta/v1"
 	"github.com/dfuse-io/shutter"
 	"go.uber.org/zap"
 )
@@ -52,11 +53,15 @@ type Config struct {
 }
 
 type Modules struct {
-	BlockFilter        func(blk *bstream.Block) error
+	// Required dependencies
 	BlockMapper        fluxdb.BlockMapper
-	StartBlockResolver bstream.StartBlockResolver
 	OnServerMode       func(db *fluxdb.FluxDB)
 	OnInjectMode       func(db *fluxdb.FluxDB)
+	StartBlockResolver bstream.StartBlockResolver
+
+	// Optional dependencies
+	BlockFilter func(blk *bstream.Block) error
+	BlockMeta   pbblockmeta.BlockIDClient
 }
 
 type App struct {
@@ -120,7 +125,7 @@ func (a *App) startStandard(blocksStore dstore.Store, kvStore store.KVStore) err
 	db.OnTerminated(a.Shutdown)
 
 	if a.config.EnableInjectMode || a.config.EnablePipeline {
-		db.BuildPipeline(fluxDBHandler.InitializeStartBlockID, fluxDBHandler, blocksStore, a.config.BlockStreamAddr)
+		db.BuildPipeline(a.modules.BlockMeta, fluxDBHandler.InitializeStartBlockID, fluxDBHandler, blocksStore, a.config.BlockStreamAddr)
 	}
 
 	if a.config.EnableInjectMode {
@@ -161,6 +166,7 @@ func (a *App) startReprocSharder(blocksStore dstore.Store) error {
 	source, err := fluxdb.BuildReprocessingPipeline(
 		a.modules.BlockFilter,
 		a.modules.BlockMapper,
+		a.modules.BlockMeta,
 		a.modules.StartBlockResolver,
 		shardingPipe,
 		blocksStore,
@@ -170,7 +176,7 @@ func (a *App) startReprocSharder(blocksStore dstore.Store) error {
 		return fmt.Errorf("reprocessing pipeline: %w", err)
 	}
 
-	a.OnTerminating(func(e error) {
+	a.OnTerminating(func(_ error) {
 		source.Shutdown(nil)
 	})
 
@@ -212,7 +218,7 @@ func (a *App) startReprocInjector(kvStore store.KVStore) error {
 
 	shardInjector := fluxdb.NewShardInjector(shardStore, db)
 
-	a.OnTerminating(func(e error) {
+	a.OnTerminating(func(_ error) {
 		shardInjector.Shutdown(nil)
 	})
 
@@ -240,6 +246,8 @@ func (a *App) startReprocInjector(kvStore store.KVStore) error {
 	return nil
 }
 
+// Validate inspects itself to determine if the current config is valid according to
+// FluxDB rules.
 func (config *Config) Validate() error {
 	server := config.EnableServerMode
 	injector := config.EnableInjectMode
