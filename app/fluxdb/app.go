@@ -18,6 +18,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
+	"path"
 	"strings"
 
 	"github.com/dfuse-io/bstream"
@@ -200,6 +202,18 @@ func (a *App) startReprocSharder(blocksStore dstore.Store) error {
 	return nil
 }
 
+func appendPath(baseURL string, suffix string) (string, error) {
+	storeURL, err := url.Parse(baseURL)
+	if err != nil {
+		return "", err
+	}
+
+	fullPath := storeURL.Path
+	storeURL.Path = path.Join(fullPath, suffix)
+
+	return storeURL.String(), nil
+}
+
 func (a *App) startReprocInjector(kvStore store.KVStore) error {
 	db := fluxdb.New(kvStore, a.modules.BlockFilter, a.modules.BlockMapper)
 
@@ -208,7 +222,10 @@ func (a *App) startReprocInjector(kvStore store.KVStore) error {
 		return fmt.Errorf("db is not clean before injecting shards: %w", err)
 	}
 
-	shardStoreFullURL := a.config.ReprocShardStoreURL + "/" + fmt.Sprintf("%03d", a.config.ReprocInjectorShardIndex)
+	shardStoreFullURL, err := appendPath(a.config.ReprocShardStoreURL, fmt.Sprintf("%03d", a.config.ReprocInjectorShardIndex))
+	if err != nil {
+		return fmt.Errorf("invalid URL, cannot append shardindex path: %w", err)
+	}
 	zlog.Info("using shards url", zap.String("store_url", shardStoreFullURL))
 
 	shardStore, err := dstore.NewStore(shardStoreFullURL, "shard.zst", "zstd", true)
