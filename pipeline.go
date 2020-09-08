@@ -176,8 +176,9 @@ type FluxDBHandler struct {
 
 func NewHandler(db *FluxDB) *FluxDBHandler {
 	return &FluxDBHandler{
-		db:  db,
-		ctx: context.Background(),
+		db:        db,
+		ctx:       context.Background(),
+		headBlock: bstream.BlockRefEmpty,
 	}
 }
 
@@ -258,7 +259,7 @@ func (p *FluxDBHandler) ProcessBlock(rawBlk *bstream.Block, rawObj interface{}) 
 	switch fObj.Step {
 	case forkable.StepNew:
 		if !p.db.IsReady() {
-			if isNearRealtime(rawBlk, time.Now()) && p.HeadBlock(context.Background()) != nil {
+			if isNearRealtime(rawBlk, time.Now()) && !bstream.EqualsBlockRefs(p.HeadBlock(context.Background()), bstream.BlockRefEmpty) {
 				zlog.Info("realtime blocks flowing, marking process as ready")
 				p.db.SetReady()
 			}

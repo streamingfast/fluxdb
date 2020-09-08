@@ -73,7 +73,7 @@ func (fdb *FluxDB) Launch(enablePipeline bool) {
 			_, lastWrittenBlock, err := fdb.FetchLastWrittenCheckpoint(ctx)
 			if err != nil {
 				fdb.Shutdown(fmt.Errorf("failed fetching the last written block: %w", err))
-				return nil
+				return bstream.BlockRefEmpty
 			}
 			return lastWrittenBlock
 		}
