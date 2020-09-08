@@ -172,7 +172,7 @@ func (fdb *FluxDB) ReadTabletAt(
 	rows := rowByPrimaryKey.values()
 	sort.Slice(rows, func(i, j int) bool { return bytes.Compare(rows[i].PrimaryKey(), rows[j].PrimaryKey()) < 0 })
 
-	zlogger.Info("finished reading tablet rows", zap.Int("deleted_count", deletedCount), zap.Int("updated_count", updatedCount))
+	zlogger.Debug("finished reading tablet rows", zap.Int("deleted_count", deletedCount), zap.Int("updated_count", updatedCount))
 	return rows, nil
 }
 
@@ -287,7 +287,7 @@ func (fdb *FluxDB) ReadTabletRowAt(
 		}
 	}
 
-	zlogger.Info("finished reading tablet row", zap.Int("deleted_count", deletedCount), zap.Int("updated_count", updatedCount))
+	zlogger.Debug("finished reading tablet row", zap.Int("deleted_count", deletedCount), zap.Int("updated_count", updatedCount))
 	return row, nil
 }
 
