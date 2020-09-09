@@ -329,7 +329,7 @@ func (fdb *FluxDB) ReadSingletEntryAt(
 	zlog.Debug("reading singlet entry from speculative writes", zap.Bool("db_exist", entry != nil), zap.Int("speculative_write_count", len(speculativeWrites)))
 	for _, writeRequest := range speculativeWrites {
 		for _, speculativeEntry := range writeRequest.SingletEntries {
-			if SingletEqual(singlet, entry.Singlet()) {
+			if !SingletEqual(singlet, speculativeEntry.Singlet()) {
 				continue
 			}
 

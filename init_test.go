@@ -2,20 +2,15 @@ package fluxdb
 
 import (
 	"encoding/hex"
-	"os"
 
 	"github.com/dfuse-io/logging"
 	"github.com/stretchr/testify/assert"
-	"go.uber.org/zap"
 )
 
 var noError = ""
 
 func init() {
-	if os.Getenv("DEBUG") != "" {
-		logger, _ := zap.NewDevelopment()
-		logging.Override(logger)
-	}
+	logging.TestingOverride()
 }
 
 func B(data string) []byte {

@@ -32,6 +32,13 @@ func writeBatchOfRequests(t *testing.T, db *FluxDB, requests ...*WriteRequest) {
 	require.NoError(t, db.WriteBatch(context.Background(), requests))
 }
 
+func singletEntries(height uint64, entries ...SingletEntry) *WriteRequest {
+	return &WriteRequest{
+		Height:         height,
+		SingletEntries: entries,
+	}
+}
+
 func tabletRows(height uint64, rows ...TabletRow) *WriteRequest {
 	return &WriteRequest{
 		Height:     height,
