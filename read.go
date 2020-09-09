@@ -273,7 +273,7 @@ func (fdb *FluxDB) ReadTabletRowAt(
 				continue
 			}
 
-			if bytes.Equal(primaryKeyBytes, speculativeRow.PrimaryKey()) {
+			if !bytes.Equal(primaryKeyBytes, speculativeRow.PrimaryKey()) {
 				continue
 			}
 
