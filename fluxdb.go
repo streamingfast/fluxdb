@@ -53,7 +53,7 @@ func New(kvStore store.KVStore, blockFilter func(blk *bstream.Block) error, bloc
 	}
 }
 
-func (fdb *FluxDB) Launch(enablePipeline bool) {
+func (fdb *FluxDB) Launch(disablePipeline bool) {
 	fdb.OnTerminating(func(e error) {
 		if fdb.source != nil {
 			zlog.Info("shutting down fluxdb's source")
@@ -62,7 +62,7 @@ func (fdb *FluxDB) Launch(enablePipeline bool) {
 		}
 	})
 
-	if !enablePipeline {
+	if disablePipeline {
 		zlog.Info("not using a pipeline, waiting forever (serve mode)")
 		fdb.SpeculativeWritesFetcher = func(ctx context.Context, headBlockID string, upToHeight uint64) (speculativeWrites []*WriteRequest) {
 			return nil

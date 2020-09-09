@@ -36,7 +36,6 @@ type Config struct {
 	BlockStreamAddr          string // gRPC endpoint to get real-time blocks
 	EnableServerMode         bool   // Enables flux server mode, launch a server
 	EnableInjectMode         bool   // Enables flux inject mode, writes into kvd
-	EnablePipeline           bool   // Connects to blocks pipeline, can be used to have a development server only fluxdb
 	EnableReprocSharderMode  bool   // Enables flux reproc shard mode, exclusive option, cannot be set if either server, injector or reproc-injector mode is set
 	EnableReprocInjectorMode bool   // Enables flux reproc injector mode, exclusive option, cannot be set if either server, injector or reproc-shard mode is set
 	BlockStoreURL            string // dbin blocks store
@@ -52,6 +51,9 @@ type Config struct {
 
 	// Available for reproc-injector only
 	ReprocInjectorShardIndex uint64
+
+	DisablePipeline  bool // Connects to blocks pipeline, can be used to have a development server only fluxdb
+	WriteOnEachBlock bool // Writes to storage engine at each irreversible block, can be used in development to flush more rapidly to storage
 }
 
 type Modules struct {
@@ -126,13 +128,18 @@ func (a *App) startStandard(blocksStore dstore.Store, kvStore store.KVStore) err
 
 	db.OnTerminated(a.Shutdown)
 
-	if a.config.EnableInjectMode || a.config.EnablePipeline {
+	if a.config.EnableInjectMode || !a.config.DisablePipeline {
 		db.BuildPipeline(a.modules.BlockMeta, fluxDBHandler.InitializeStartBlockID, fluxDBHandler, blocksStore, a.config.BlockStreamAddr)
 	}
 
 	if a.config.EnableInjectMode {
 		zlog.Info("setting up injector mode write")
 		fluxDBHandler.EnableWrites()
+	}
+
+	if a.config.WriteOnEachBlock {
+		zlog.Info("setting up injector write on each block")
+		fluxDBHandler.EnableWriteOnEachIrreversibleStep()
 	}
 
 	if a.config.EnableServerMode {
@@ -143,7 +150,7 @@ func (a *App) startStandard(blocksStore dstore.Store, kvStore store.KVStore) err
 		a.modules.OnInjectMode(db)
 	}
 
-	go db.Launch(a.config.EnablePipeline)
+	go db.Launch(a.config.DisablePipeline)
 
 	return nil
 }
