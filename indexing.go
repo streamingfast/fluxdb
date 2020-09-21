@@ -327,6 +327,9 @@ func newPrimaryKeyToHeightMap(length int) *primaryKeyToHeightMap {
 func (m *primaryKeyToHeightMap) put(k []byte, v uint64) { m._put(k, v) }
 func (m *primaryKeyToHeightMap) get(k []byte) (uint64, bool) {
 	v, f := m._get(k)
+	if !f {
+		return 0, f
+	}
 	return v.(uint64), f
 }
 
