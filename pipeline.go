@@ -146,7 +146,7 @@ func (fdb *FluxDB) BuildPipeline(
 		return bstream.NewJoiningSource(fileSourceFactory, liveSourceFactory, forkHandler,
 			bstream.JoiningSourceLogger(zlog),
 			bstream.JoiningSourceTargetBlockID(startBlock.ID()),
-			bstream.JoiningSourceTargetBlockNum(2),
+			bstream.JoiningSourceTargetBlockNum(bstream.GetProtocolFirstStreamableBlock),
 		)
 	})
 
