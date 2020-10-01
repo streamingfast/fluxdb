@@ -148,7 +148,7 @@ func TestKeyForTabletRowParts(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			assert.Equal(t, test.expectedHex, hex.EncodeToString(KeyForTabletRowParts(test.tablet, test.height, test.primaryKey)))
+			assert.Equal(t, test.expectedHex, hex.EncodeToString(KeyForTabletRowFromParts(test.tablet, test.height, test.primaryKey)))
 		})
 	}
 }
@@ -259,4 +259,14 @@ func (r testTabletRow) String() string {
 
 func (r testTabletRow) data() string {
 	return string(r.value)
+}
+
+type testTabletRowPrimaryKey []byte
+
+func (k testTabletRowPrimaryKey) Bytes() []byte {
+	return []byte(k)
+}
+
+func (k testTabletRowPrimaryKey) String() string {
+	return hex.EncodeToString([]byte(k))
 }

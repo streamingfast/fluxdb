@@ -342,7 +342,7 @@ func (m *primaryKeyToHeightMap) rowKeys(tablet Tablet, height uint64) (keys [][]
 
 	i := 0
 	for primaryKey, height := range m.mappings {
-		keys[i] = KeyForTabletRowParts(tablet, height.(uint64), []byte(primaryKey))
+		keys[i] = KeyForTabletRowFromParts(tablet, height.(uint64), []byte(primaryKey))
 		i++
 	}
 

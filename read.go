@@ -205,7 +205,7 @@ func (fdb *FluxDB) ReadTabletRowAt(
 		startKey = KeyForTabletAt(tablet, idx.AtHeight+1)
 
 		if height, ok := idx.PrimaryKeyToHeight.get(primaryKeyBytes); ok {
-			rowKey := KeyForTabletRowParts(tablet, height, primaryKeyBytes)
+			rowKey := KeyForTabletRowFromParts(tablet, height, primaryKeyBytes)
 			zlogger.Debug("reading index row", zap.Stringer("row_key", rowKey))
 
 			value, err := fdb.store.FetchTabletRow(ctx, rowKey)
@@ -215,7 +215,7 @@ func (fdb *FluxDB) ReadTabletRowAt(
 			if err != nil {
 				return nil, fmt.Errorf("reading tablet index row %q: %w", rowKey, err)
 			}
-			if len(value) <= 0 {
+			if len(value) > 0 {
 				row, err = tablet.Row(height, primaryKeyBytes, value)
 				if err != nil {
 					return nil, fmt.Errorf("could not create table from key value with row key %q: %w", rowKey, err)

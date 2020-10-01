@@ -256,10 +256,10 @@ func NewTabletRowFromStorage(key []byte, value []byte) (TabletRow, error) {
 type TabletRowKey []byte
 
 func KeyForTabletRow(row TabletRow) (out TabletRowKey) {
-	return KeyForTabletRowParts(row.Tablet(), row.Height(), row.PrimaryKey())
+	return KeyForTabletRowFromParts(row.Tablet(), row.Height(), row.PrimaryKey())
 }
 
-func KeyForTabletRowParts(tablet Tablet, height uint64, primaryKey []byte) (out TabletRowKey) {
+func KeyForTabletRowFromParts(tablet Tablet, height uint64, primaryKey []byte) (out TabletRowKey) {
 	collection := tablet.Collection()
 	tabletIdentifier := tablet.Identifier()
 

@@ -143,6 +143,28 @@ func TestReadTabletAt_IndexThenDeletedThenSpeculativeInserted(t *testing.T) {
 	require.Equal(t, tablet.row(t, height+2, "002", "def"), rows[0])
 }
 
+func TestReadTabletRowAt_OnlyFromIndex(t *testing.T) {
+	db, closer := NewTestDB(t)
+	defer closer()
+
+	height := uint64(123)
+	tablet := newTestTablet("tbl")
+	index := NewTabletIndex()
+	index.AtHeight = height
+	index.SquelchCount = 1
+	index.PrimaryKeyToHeight.put([]byte("002"), uint64(100))
+
+	writeBatchOfRequests(t, db,
+		&WriteRequest{TabletRows: []TabletRow{tablet.row(t, 100, "002", "abc")}},
+		&WriteRequest{SingletEntries: []SingletEntry{newIndexSingletEntry(newIndexSinglet(tablet), index)}},
+	)
+
+	row, err := db.ReadTabletRowAt(context.Background(), height+1, tablet, testTabletRowPrimaryKey([]byte("002")), nil)
+
+	require.NoError(t, err)
+	require.Equal(t, tablet.row(t, 100, "002", "abc"), row)
+}
+
 func TestReadSingletAt(t *testing.T) {
 	tests := []struct {
 		name           string
