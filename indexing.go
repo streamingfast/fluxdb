@@ -130,10 +130,10 @@ func (fdb *FluxDB) IndexTables(ctx context.Context) error {
 	return nil
 }
 
-// getIndex returns the latest active index at the provided height. If there is
+// ReadTabletIndexAt returns the latest active index at the provided height. If there is
 // index available at this height, this method returns `nil` as the index value.
-func (fdb *FluxDB) getIndex(ctx context.Context, tablet Tablet, height uint64) (*TabletIndex, error) {
-	ctx, span := dtracing.StartSpan(ctx, "get index")
+func (fdb *FluxDB) ReadTabletIndexAt(ctx context.Context, tablet Tablet, height uint64) (*TabletIndex, error) {
+	ctx, span := dtracing.StartSpan(ctx, "read tablet index")
 	defer span.End()
 
 	zlog := logging.Logger(ctx, zlog)

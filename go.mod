@@ -7,7 +7,7 @@ require (
 	github.com/dfuse-io/bstream v0.0.2-0.20200831174806-3a465dd49cb4
 	github.com/dfuse-io/dbin v0.0.0-20200406215642-ec7f22e794eb
 	github.com/dfuse-io/derr v0.0.0-20200730183817-a747f6f333ad
-	github.com/dfuse-io/dmetrics v0.0.0-20200508170817-3b8cb01fee68 // indirect
+	github.com/dfuse-io/dmetrics v0.0.0-20200508170817-3b8cb01fee68
 	github.com/dfuse-io/dstore v0.1.1-0.20200819043022-7cdd92b6d8a9
 	github.com/dfuse-io/dtracing v0.0.0-20200417133307-c09302668d0c
 	github.com/dfuse-io/kvdb v0.0.2-0.20200710185837-6525655ea360

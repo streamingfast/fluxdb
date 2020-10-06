@@ -355,6 +355,32 @@ func (i *TabletIndex) RowCount() uint64 {
 	return uint64(i.PrimaryKeyToHeight.len())
 }
 
+// Rows return all the rows contained in the index for this tablet without actually
+// hydrating the value of each row (which means that row retrieved using this method
+// will all have `nil` as their value).
+//
+// This is usef mainly for printing purposes.
+func (i *TabletIndex) Rows(tablet Tablet) (rows []TabletRow, err error) {
+	count := i.RowCount()
+	if count <= 0 {
+		return nil, nil
+	}
+
+	index := 0
+	rows = make([]TabletRow, count)
+	for primaryKey, height := range i.PrimaryKeyToHeight.mappings {
+		key := KeyForTabletRowFromParts(tablet, height.(uint64), []byte(primaryKey))
+		rows[index], err = NewTabletRowFromStorage(key, nil)
+		if err != nil {
+			return nil, fmt.Errorf("new row: %w", err)
+		}
+
+		index++
+	}
+
+	return
+}
+
 type primaryKeyToTabletRowMap struct {
 	*bytesMap
 }
