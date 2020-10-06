@@ -23,8 +23,10 @@ import (
 	"strings"
 
 	"github.com/dfuse-io/bstream"
+	"github.com/dfuse-io/dmetrics"
 	"github.com/dfuse-io/dstore"
 	"github.com/dfuse-io/fluxdb"
+	"github.com/dfuse-io/fluxdb/metrics"
 	"github.com/dfuse-io/fluxdb/store"
 	pbblockmeta "github.com/dfuse-io/pbgo/dfuse/blockmeta/v1"
 	"github.com/dfuse-io/shutter"
@@ -83,6 +85,8 @@ func New(config *Config, modules *Modules) *App {
 }
 
 func (a *App) Run() error {
+	dmetrics.Register(metrics.MetricSet)
+
 	zlog.Info("running fluxdb", zap.Reflect("config", a.config))
 	if err := a.config.Validate(); err != nil {
 		return fmt.Errorf("invalid app config: %w", err)

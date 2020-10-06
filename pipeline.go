@@ -25,6 +25,7 @@ import (
 	"github.com/dfuse-io/bstream/blockstream"
 	"github.com/dfuse-io/bstream/forkable"
 	"github.com/dfuse-io/dstore"
+	"github.com/dfuse-io/fluxdb/metrics"
 	pbblockmeta "github.com/dfuse-io/pbgo/dfuse/blockmeta/v1"
 	"go.uber.org/zap"
 )
@@ -258,6 +259,9 @@ func (p *FluxDBHandler) ProcessBlock(rawBlk *bstream.Block, rawObj interface{}) 
 
 	switch fObj.Step {
 	case forkable.StepNew:
+
+		metrics.HeadBlockTimeDrift.SetBlockTime(rawBlk.Time())
+		metrics.HeadBlockNumber.SetUint64(rawBlk.Num())
 		if !p.db.IsReady() {
 			if isNearRealtime(rawBlk, time.Now()) && !bstream.EqualsBlockRefs(p.HeadBlock(context.Background()), bstream.BlockRefEmpty) {
 				zlog.Info("realtime blocks flowing, marking process as ready")
