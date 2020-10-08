@@ -47,56 +47,10 @@ func (fdb *FluxDB) IndexTables(ctx context.Context) error {
 			return fmt.Errorf("flush if full: %w", err)
 		}
 
-		indexSinglet := newIndexSinglet(tablet)
-
-		zlog.Debug("checking if index already exist in cache")
-		index := fdb.idxCache.GetIndex(tabletKey)
-		if index == nil {
-			zlog.Debug("index not in cache")
-
-			indexEntry, err := fdb.ReadSingletEntryAt(ctx, indexSinglet, math.MaxUint64, nil)
-			if err != nil {
-				return fmt.Errorf("get index %s at height %d: %w", tablet, height, err)
-			}
-
-			if indexEntry == nil {
-				zlog.Debug("index does not exist yet, creating empty one")
-				index = NewTabletIndex()
-			} else {
-				index = indexEntry.(indexSingletEntry).index
-			}
-		}
-
-		startKey := KeyForTabletAt(tablet, index.AtHeight+1)
-		endKey := KeyForTabletAt(tablet, height+1)
-
-		zlog.Debug("reading table rows for indexation", zap.Stringer("first_row_key", startKey), zap.Stringer("last_row_key", endKey))
-
-		count := 0
-		err = fdb.store.ScanTabletRows(ctx, startKey, endKey, func(key []byte, value []byte) error {
-			// We are really only interested by the row's key here, so we don't give it any value, just like if it would be a deleted row
-			row, err := NewTabletRow(tablet, key, nil)
-			if err != nil {
-				return fmt.Errorf("couldn't parse row key %q: %w", key, err)
-			}
-
-			count++
-
-			if len(value) == 0 {
-				index.PrimaryKeyToHeight.delete(row.PrimaryKey())
-			} else {
-				index.PrimaryKeyToHeight.put(row.PrimaryKey(), row.Height())
-			}
-
-			return nil
-		})
-
+		index, err := fdb.IndexTablet(ctx, tablet, height)
 		if err != nil {
-			return fmt.Errorf("read rows: %w", err)
+			return fmt.Errorf("index tablet %s: %w", tablet, err)
 		}
-
-		index.AtHeight = height
-		index.SquelchCount = uint64(count)
 
 		zlog.Debug("about to marshal index to binary",
 			zap.Stringer("tablet", tablet),
@@ -105,19 +59,21 @@ func (fdb *FluxDB) IndexTables(ctx context.Context) error {
 			zap.Int("row_count", index.PrimaryKeyToHeight.len()),
 		)
 
+		indexSinglet := newIndexSingletFromKey(tabletKey)
 		indexEntry := newIndexSingletEntry(indexSinglet, index)
 		value, err := indexEntry.MarshalValue()
 		if err != nil {
 			return fmt.Errorf("singlet to proto: %w", err)
 		}
 
-		if len(value) > 25000000 {
+		// When above 25MB, flag as being a big index
+		if len(value) > 25*1000*1000 {
 			zlog.Warn("index singlet pretty heavy", zap.Stringer("index_entry", indexEntry), zap.Int("byte_count", len(value)))
 		}
 
 		batch.SetRow(KeyForSingletEntry(indexEntry), value)
 
-		zlog.Debug("caching index in index cache", zap.Stringer("index_entry", indexEntry), zap.Stringer("tablet", tablet))
+		zlog.Debug("caching index in index cache", zap.Stringer("index_entry", indexEntry))
 		fdb.idxCache.CacheIndex(tabletKey, index)
 		fdb.idxCache.ResetCounter(tabletKey)
 		delete(fdb.idxCache.scheduleIndexing, string(tabletKey))
@@ -128,6 +84,62 @@ func (fdb *FluxDB) IndexTables(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (fdb *FluxDB) IndexTablet(ctx context.Context, tablet Tablet, height uint64) (*TabletIndex, error) {
+	tabletKey := KeyForTablet(tablet)
+
+	zlog.Debug("checking if index already exist in cache")
+	index := fdb.idxCache.GetIndex(tabletKey)
+	if index == nil {
+		zlog.Debug("index not in cache")
+
+		indexSinglet := newIndexSingletFromKey(tabletKey)
+		indexEntry, err := fdb.ReadSingletEntryAt(ctx, indexSinglet, math.MaxUint64, nil)
+		if err != nil {
+			return nil, fmt.Errorf("get index %s at height %d: %w", tablet, height, err)
+		}
+
+		if indexEntry == nil {
+			zlog.Debug("index does not exist yet, creating empty one")
+			index = NewTabletIndex()
+		} else {
+			index = indexEntry.(indexSingletEntry).index
+		}
+	}
+
+	startKey := KeyForTabletAt(tablet, index.AtHeight+1)
+	endKey := KeyForTabletAt(tablet, height+1)
+
+	zlog.Debug("reading table rows for indexation", zap.Stringer("first_row_key", startKey), zap.Stringer("last_row_key", endKey))
+
+	count := 0
+	err := fdb.store.ScanTabletRows(ctx, startKey, endKey, func(key []byte, value []byte) error {
+		// We are really only interested by the row's key here, so we don't give it any value, just like if it would be a deleted row
+		row, err := NewTabletRow(tablet, key, nil)
+		if err != nil {
+			return fmt.Errorf("couldn't parse row key %q: %w", key, err)
+		}
+
+		count++
+
+		if len(value) == 0 {
+			index.PrimaryKeyToHeight.delete(row.PrimaryKey())
+		} else {
+			index.PrimaryKeyToHeight.put(row.PrimaryKey(), row.Height())
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("read rows: %w", err)
+	}
+
+	index.AtHeight = height
+	index.SquelchCount = uint64(count)
+
+	return index, nil
 }
 
 // ReadTabletIndexAt returns the latest active index at the provided height. If there is
@@ -236,7 +248,11 @@ type indexSinglet struct {
 }
 
 func newIndexSinglet(forTablet Tablet) indexSinglet {
-	return indexSinglet{tabletKey: KeyForTablet(forTablet)}
+	return newIndexSingletFromKey(KeyForTablet(forTablet))
+}
+
+func newIndexSingletFromKey(tabletKey TabletKey) indexSinglet {
+	return indexSinglet{tabletKey: tabletKey}
 }
 
 func (s indexSinglet) Collection() uint16 {
