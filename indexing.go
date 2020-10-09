@@ -47,7 +47,7 @@ func (fdb *FluxDB) IndexTables(ctx context.Context) error {
 			return fmt.Errorf("flush if full: %w", err)
 		}
 
-		index, err := fdb.IndexTablet(ctx, tablet, height)
+		index, err := fdb.IndexTablet(ctx, tablet, height, false)
 		if err != nil {
 			return fmt.Errorf("index tablet %s: %w", tablet, err)
 		}
@@ -86,29 +86,39 @@ func (fdb *FluxDB) IndexTables(ctx context.Context) error {
 	return nil
 }
 
-func (fdb *FluxDB) IndexTablet(ctx context.Context, tablet Tablet, height uint64) (*TabletIndex, error) {
+func (fdb *FluxDB) IndexTablet(ctx context.Context, tablet Tablet, height uint64, forceReindex bool) (*TabletIndex, error) {
 	tabletKey := KeyForTablet(tablet)
 
-	zlog.Debug("checking if index already exist in cache")
-	index := fdb.idxCache.GetIndex(tabletKey)
-	if index == nil {
-		zlog.Debug("index not in cache")
+	var index *TabletIndex
+	if forceReindex {
+		index = NewTabletIndex()
+	} else {
+		zlog.Debug("checking if index already exist in cache")
+		index := fdb.idxCache.GetIndex(tabletKey)
+		if index == nil {
+			zlog.Debug("index not in cache")
 
-		indexSinglet := newIndexSingletFromKey(tabletKey)
-		indexEntry, err := fdb.ReadSingletEntryAt(ctx, indexSinglet, math.MaxUint64, nil)
-		if err != nil {
-			return nil, fmt.Errorf("get index %s at height %d: %w", tablet, height, err)
-		}
+			indexSinglet := newIndexSingletFromKey(tabletKey)
+			indexEntry, err := fdb.ReadSingletEntryAt(ctx, indexSinglet, math.MaxUint64, nil)
+			if err != nil {
+				return nil, fmt.Errorf("get index %s at height %d: %w", tablet, height, err)
+			}
 
-		if indexEntry == nil {
-			zlog.Debug("index does not exist yet, creating empty one")
-			index = NewTabletIndex()
-		} else {
-			index = indexEntry.(indexSingletEntry).index
+			if indexEntry == nil {
+				zlog.Debug("index does not exist yet, creating empty one")
+				index = NewTabletIndex()
+			} else {
+				index = indexEntry.(indexSingletEntry).index
+			}
 		}
 	}
 
-	startKey := KeyForTabletAt(tablet, index.AtHeight+1)
+	startHeight := uint64(0)
+	if index.AtHeight != 0 {
+		startHeight = index.AtHeight + 1
+	}
+
+	startKey := KeyForTabletAt(tablet, startHeight)
 	endKey := KeyForTabletAt(tablet, height+1)
 
 	zlog.Debug("reading table rows for indexation", zap.Stringer("first_row_key", startKey), zap.Stringer("last_row_key", endKey))
