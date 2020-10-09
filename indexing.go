@@ -63,7 +63,7 @@ func (fdb *FluxDB) IndexTables(ctx context.Context) error {
 		indexEntry := newIndexSingletEntry(indexSinglet, index)
 		value, err := indexEntry.MarshalValue()
 		if err != nil {
-			return fmt.Errorf("singlet to proto: %w", err)
+			return fmt.Errorf("index entry to proto: %w", err)
 		}
 
 		// When above 25MB, flag as being a big index
@@ -84,6 +84,57 @@ func (fdb *FluxDB) IndexTables(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (fdb *FluxDB) ReindexTablet(ctx context.Context, tablet Tablet, height uint64, write bool) (*TabletIndex, bool, error) {
+	zlog.Debug("re-indexing tablet", zap.Stringer("tablet", tablet), zap.Uint64("height", height))
+
+	maxHeight := uint64(math.MaxUint64)
+	if height != 0 {
+		maxHeight = height
+	}
+
+	tabletKey := KeyForTablet(tablet)
+	indexSinglet := newIndexSingletFromKey(tabletKey)
+
+	zlog.Debug("looking for existing index", zap.Uint64("max_height", maxHeight))
+	// FIXME: Ideally, we should actually just read the key, not the value, we don't care about the old value when re-indexing
+	indexEntry, err := fdb.ReadSingletEntryAt(ctx, indexSinglet, maxHeight, nil)
+	if err != nil {
+		return nil, false, fmt.Errorf("get index %s at height %d: %w", tablet, height, err)
+	}
+
+	if indexEntry == nil {
+		zlog.Debug("re-index not required since no index existed at this block height", zap.Uint64("height", height))
+		return nil, false, err
+	}
+
+	zlog.Debug("found existing index for height, re-computing it", zap.Stringer("index_entry", indexEntry))
+
+	reindex, err := fdb.IndexTablet(ctx, tablet, indexEntry.Height(), true)
+	if err != nil {
+		return nil, false, fmt.Errorf("index tablet: %w", err)
+	}
+
+	if !write {
+		zlog.Debug("not writing back index to storage engine", zap.Stringer("index_entry", indexEntry))
+		return reindex, false, nil
+	}
+
+	value, err := newIndexSingletEntry(indexSinglet, reindex).MarshalValue()
+	if err != nil {
+		return nil, false, fmt.Errorf("index entry to proto: %w", err)
+	}
+
+	batch := fdb.store.NewBatch(zlog)
+	batch.SetRow(KeyForSingletEntry(indexEntry), value)
+
+	err = batch.Flush(ctx)
+	if err != nil {
+		return nil, false, fmt.Errorf("write index: %w", err)
+	}
+
+	return reindex, true, nil
 }
 
 func (fdb *FluxDB) IndexTablet(ctx context.Context, tablet Tablet, height uint64, forceReindex bool) (*TabletIndex, error) {
