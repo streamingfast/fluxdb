@@ -124,6 +124,27 @@ func (s *KVStore) ScanTabletRows(ctx context.Context, keyStart, keyEnd []byte, o
 	return nil
 }
 
+func (s *KVStore) ScanIndexKeys(ctx context.Context, prefix []byte, onKey store.OnKey) error {
+	err := s.scanPrefix(ctx, TblPrefixRows, prefix, kv.Unlimited, true, func(key []byte, _ []byte) error {
+		err := onKey(key)
+		if err == store.BreakScan {
+			return store.BreakScan
+		}
+
+		if err != nil {
+			return fmt.Errorf("on scan index %s: %w", Key(key), err)
+		}
+
+		return nil
+	})
+
+	if err != nil && err != store.BreakScan {
+		return fmt.Errorf("scan indexes: %w", err)
+	}
+
+	return nil
+}
+
 func (s *KVStore) FetchLastWrittenCheckpoint(ctx context.Context, key []byte) (out []byte, err error) {
 	logging.Logger(ctx, zlog).Debug("fetching last written block", zap.Stringer("key", Key(key)))
 	value, err := s.fetchKey(ctx, TblPrefixLastCheckpoint, key)
@@ -135,7 +156,7 @@ func (s *KVStore) FetchLastWrittenCheckpoint(ctx context.Context, key []byte) (o
 }
 
 func (s *KVStore) ScanLastShardsWrittenCheckpoint(ctx context.Context, keyPrefix []byte, onKeyValue store.OnKeyValue) error {
-	err := s.scanPrefix(ctx, TblPrefixLastCheckpoint, keyPrefix, kv.Unlimited, func(key []byte, value []byte) error {
+	err := s.scanPrefix(ctx, TblPrefixLastCheckpoint, keyPrefix, kv.Unlimited, false, func(key []byte, value []byte) error {
 		err := onKeyValue(key, value)
 		if err == store.BreakScan {
 			return store.BreakScan
@@ -205,13 +226,18 @@ func (s *KVStore) fetchKeys(batchCtx context.Context, table byte, keys [][]byte,
 	return nil
 }
 
-func (s *KVStore) scanPrefix(ctx context.Context, table byte, prefixKey []byte, limit int, onRow func(key []byte, value []byte) error) error {
+func (s *KVStore) scanPrefix(ctx context.Context, table byte, prefixKey []byte, limit int, keyOnly bool, onRow func(key []byte, value []byte) error) error {
 	kvPrefix := packKey(table, prefixKey)
 
 	itrCtx, cancelIterator := context.WithCancel(ctx)
 	defer cancelIterator()
 
-	itr := s.db.Prefix(itrCtx, kvPrefix, limit)
+	var readOptions []kv.ReadOption
+	if keyOnly {
+		readOptions = []kv.ReadOption{kv.KeyOnly()}
+	}
+
+	itr := s.db.Prefix(itrCtx, kvPrefix, limit, readOptions...)
 	for itr.Next() {
 		item := itr.Item()
 		t, key := unpackKey(item.Key)

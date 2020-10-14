@@ -46,6 +46,8 @@ type Batch interface {
 	Reset()
 }
 
+type OnKey func(key []byte) error
+
 type OnKeyValue func(key []byte, value []byte) error
 
 // KVStore represents the abstraction needed by FluxDB to correctly use different
@@ -71,6 +73,8 @@ type KVStore interface {
 	FetchSingletEntry(ctx context.Context, keyStart, keyEnd []byte) (key []byte, value []byte, err error)
 
 	ScanTabletRows(ctx context.Context, keyStart, keyEnd []byte, onKeyValue OnKeyValue) error
+
+	ScanIndexKeys(ctx context.Context, prefix []byte, onKey OnKey) error
 
 	// FetchLastWrittenCheckpoint returns the latest written checkpoint reference that was correctly
 	// committed to the storage system.

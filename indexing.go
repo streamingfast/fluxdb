@@ -15,9 +15,11 @@
 package fluxdb
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"math"
+	"sort"
 
 	"github.com/dfuse-io/dtracing"
 	"github.com/dfuse-io/logging"
@@ -47,7 +49,7 @@ func (fdb *FluxDB) IndexTables(ctx context.Context) error {
 			return fmt.Errorf("flush if full: %w", err)
 		}
 
-		index, err := fdb.IndexTablet(ctx, tablet, height, false)
+		index, err := fdb.indexTablet(ctx, height, tablet, false, false)
 		if err != nil {
 			return fmt.Errorf("index tablet %s: %w", tablet, err)
 		}
@@ -86,9 +88,101 @@ func (fdb *FluxDB) IndexTables(ctx context.Context) error {
 	return nil
 }
 
-func (fdb *FluxDB) ReindexTablet(ctx context.Context, tablet Tablet, height uint64, write bool) (*TabletIndex, bool, error) {
-	zlog.Debug("re-indexing tablet", zap.Stringer("tablet", tablet), zap.Uint64("height", height))
+func (fdb *FluxDB) ReindexTablets(ctx context.Context, height uint64, lowerBound Tablet, dryRun bool) (tabletCount int, indexCount int, err error) {
+	prefix := make([]byte, 2)
+	bigEndian.PutUint16(prefix, indexSingletCollection)
 
+	lowerBoundKey := []byte(nil)
+	if lowerBound != nil {
+		lowerBoundKey = KeyForTablet(lowerBound)
+	}
+
+	indexKeysPerTablet := map[string][]indexSingletEntry{}
+	err = fdb.store.ScanIndexKeys(ctx, prefix, func(key []byte) error {
+		entry, err := NewSingletEntryFromStorage(key, nil)
+		if err != nil {
+			return fmt.Errorf("invalid singlet key %x: %w", key, err)
+		}
+
+		if height != 0 && entry.Height() > height {
+			return nil
+		}
+
+		indexEntry := entry.(indexSingletEntry)
+		tabletKey := indexEntry.singlet.(indexSinglet).tabletKey
+
+		if bytes.Compare(tabletKey, lowerBoundKey) < 0 {
+			return nil
+		}
+
+		indexCount++
+		indexKeysPerTablet[string(tabletKey)] = append(indexKeysPerTablet[string(tabletKey)], indexEntry)
+		return nil
+	})
+
+	if err != nil {
+		return 0, 0, fmt.Errorf("scan: %w", err)
+	}
+
+	zlog.Debug("re-indexing tablets", zap.Int("tablet_count", len(indexKeysPerTablet)), zap.Int("index_count", indexCount))
+	if dryRun {
+		if traceEnabled {
+			for _, entries := range indexKeysPerTablet {
+				for _, entry := range entries {
+					zlog.Debug("would re-index tablet index", zap.Stringer("id", entry))
+				}
+			}
+		}
+
+		return len(indexKeysPerTablet), indexCount, nil
+	}
+
+	batch := fdb.store.NewBatch(zlog)
+	for key, entries := range indexKeysPerTablet {
+		tablet, err := NewTablet([]byte(key))
+		if err != nil {
+			return 0, 0, fmt.Errorf("new tablet for key %x: %w", []byte(key), err)
+		}
+
+		sort.Slice(entries, func(i, j int) bool {
+			return entries[i].height < entries[j].height
+		})
+
+		indexSinglet := newIndexSingletFromKey(TabletKey(key))
+		for _, entry := range entries {
+			index, err := fdb.indexTablet(ctx, entry.height, tablet, false, true)
+			if err != nil {
+				return 0, 0, fmt.Errorf("tablet index: %w", err)
+			}
+
+			value, err := newIndexSingletEntry(indexSinglet, index).MarshalValue()
+			if err != nil {
+				return 0, 0, fmt.Errorf("index entry to proto: %w", err)
+			}
+
+			zlog.Debug("re-indexed tablet, adding it to batch", zap.Stringer("index", entry))
+			batch.SetRow(KeyForSingletEntry(entry), value)
+			err = batch.FlushIfFull(ctx)
+			if err != nil {
+				return 0, 0, fmt.Errorf("write indexes: %w", err)
+			}
+
+			fdb.idxCache.CacheIndex(TabletKey(key), index)
+		}
+
+		fdb.idxCache.Reset()
+	}
+
+	err = batch.Flush(ctx)
+	if err != nil {
+		return 0, 0, fmt.Errorf("write indexes: %w", err)
+	}
+
+	return len(indexKeysPerTablet), indexCount, nil
+}
+
+func (fdb *FluxDB) ReindexTablet(ctx context.Context, height uint64, tablet Tablet, write bool) (*TabletIndex, bool, error) {
+	zlog.Debug("re-indexing tablet", zap.Stringer("tablet", tablet), zap.Uint64("height", height))
 	maxHeight := uint64(math.MaxUint64)
 	if height != 0 {
 		maxHeight = height
@@ -106,19 +200,14 @@ func (fdb *FluxDB) ReindexTablet(ctx context.Context, tablet Tablet, height uint
 
 	if indexEntry == nil {
 		zlog.Debug("re-index not required since no index existed at this block height", zap.Uint64("height", height))
-		return nil, false, err
+		return nil, false, nil
 	}
 
 	zlog.Debug("found existing index for height, re-computing it", zap.Stringer("index_entry", indexEntry))
 
-	reindex, err := fdb.IndexTablet(ctx, tablet, indexEntry.Height(), true)
+	reindex, err := fdb.indexTablet(ctx, indexEntry.Height(), tablet, false, true)
 	if err != nil {
 		return nil, false, fmt.Errorf("index tablet: %w", err)
-	}
-
-	if !write {
-		zlog.Debug("not writing back index to storage engine", zap.Stringer("index_entry", indexEntry))
-		return reindex, false, nil
 	}
 
 	value, err := newIndexSingletEntry(indexSinglet, reindex).MarshalValue()
@@ -129,6 +218,11 @@ func (fdb *FluxDB) ReindexTablet(ctx context.Context, tablet Tablet, height uint
 	batch := fdb.store.NewBatch(zlog)
 	batch.SetRow(KeyForSingletEntry(indexEntry), value)
 
+	if !write {
+		zlog.Debug("not writing back index to storage engine", zap.Stringer("index_entry", indexEntry))
+		return reindex, false, nil
+	}
+
 	err = batch.Flush(ctx)
 	if err != nil {
 		return nil, false, fmt.Errorf("write index: %w", err)
@@ -137,31 +231,35 @@ func (fdb *FluxDB) ReindexTablet(ctx context.Context, tablet Tablet, height uint
 	return reindex, true, nil
 }
 
-func (fdb *FluxDB) IndexTablet(ctx context.Context, tablet Tablet, height uint64, forceReindex bool) (*TabletIndex, error) {
+func (fdb *FluxDB) indexTablet(ctx context.Context, height uint64, tablet Tablet, skipFromCache bool, skipFromStore bool) (*TabletIndex, error) {
 	tabletKey := KeyForTablet(tablet)
 
 	var index *TabletIndex
-	if forceReindex {
-		index = NewTabletIndex()
-	} else {
+	if !skipFromCache {
 		zlog.Debug("checking if index already exist in cache")
-		index := fdb.idxCache.GetIndex(tabletKey)
-		if index == nil {
-			zlog.Debug("index not in cache")
-
-			indexSinglet := newIndexSingletFromKey(tabletKey)
-			indexEntry, err := fdb.ReadSingletEntryAt(ctx, indexSinglet, math.MaxUint64, nil)
-			if err != nil {
-				return nil, fmt.Errorf("get index %s at height %d: %w", tablet, height, err)
-			}
-
-			if indexEntry == nil {
-				zlog.Debug("index does not exist yet, creating empty one")
-				index = NewTabletIndex()
-			} else {
-				index = indexEntry.(indexSingletEntry).index
-			}
+		index = fdb.idxCache.GetIndex(tabletKey)
+		if index != nil {
+			zlog.Debug("found tablet index in cache", zap.Uint64("at_height", index.AtHeight))
 		}
+	}
+
+	if index == nil && !skipFromStore {
+		zlog.Debug("index not in cache, checking in storage")
+		indexSinglet := newIndexSingletFromKey(tabletKey)
+		indexEntry, err := fdb.ReadSingletEntryAt(ctx, indexSinglet, height-1, nil)
+		if err != nil {
+			return nil, fmt.Errorf("get index %s at height %d: %w", tablet, height, err)
+		}
+
+		if indexEntry != nil {
+			index = indexEntry.(indexSingletEntry).index
+			zlog.Debug("found tablet index in store", zap.Uint64("at_height", index.AtHeight))
+		}
+	}
+
+	if index == nil {
+		zlog.Debug("index does not exist yet, creating empty one")
+		index = NewTabletIndex()
 	}
 
 	startHeight := uint64(0)
@@ -256,6 +354,12 @@ func (t *indexCache) IncCount(key TabletKey) {
 
 func (t *indexCache) ResetCounter(key TabletKey) {
 	t.lastCounters[string(key)] = 0
+}
+
+func (t *indexCache) Reset() {
+	t.lastIndexes = make(map[string]*TabletIndex)
+	t.lastCounters = make(map[string]int)
+	t.scheduleIndexing = make(map[string]uint64)
 }
 
 // This algorithm determines the space between the indexes
