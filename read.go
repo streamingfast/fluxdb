@@ -54,7 +54,7 @@ func (fdb *FluxDB) ReadTabletAt(
 	var rowByPrimaryKey *primaryKeyToTabletRowMap
 	if idx != nil {
 		idxRowCount := idx.RowCount()
-		zlogger.Debug("tablet index exists, reconciling it", zap.Uint64("row_count", idxRowCount))
+		zlogger.Debug("tablet index exists, reconciling it", zap.Uint64("height", idx.AtHeight), zap.Uint64("row_count", idxRowCount))
 		startKey = KeyForTabletAt(tablet, idx.AtHeight+1)
 
 		// Let's pre-allocated `rowByPrimaryKey`, it's likely to need at least as much rows as in the index itself
@@ -201,7 +201,7 @@ func (fdb *FluxDB) ReadTabletRowAt(
 	var row TabletRow
 	if idx != nil {
 		idxRowCount := idx.RowCount()
-		zlogger.Debug("tablet index exists, reconciling it", zap.Uint64("row_count", idxRowCount))
+		zlogger.Debug("tablet index exists, reconciling it", zap.Uint64("height", idx.AtHeight), zap.Uint64("row_count", idxRowCount))
 		startKey = KeyForTabletAt(tablet, idx.AtHeight+1)
 
 		if height, ok := idx.PrimaryKeyToHeight.get(primaryKeyBytes); ok {
