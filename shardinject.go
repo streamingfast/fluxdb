@@ -83,7 +83,7 @@ func (s *ShardInjector) Run() (err error) {
 		}
 		defer reader.Close()
 
-		requests, err := readWriteRequestsForBatch(reader, startAfterNum)
+		requests, err := ReadShard(reader, startAfterNum)
 		if err != nil {
 			return fmt.Errorf("unable to read all write requests in batch %q: %w", filename, err)
 		}
@@ -125,7 +125,7 @@ func parseFileName(filename string) (first, last uint64, err error) {
 	return
 }
 
-func readWriteRequestsForBatch(reader io.Reader, startAfter uint64) ([]*WriteRequest, error) {
+func ReadShard(reader io.Reader, startAfter uint64) ([]*WriteRequest, error) {
 	dbinDecoder := dbin.NewReader(reader)
 	contentType, version, err := dbinDecoder.ReadHeader()
 	if err != nil {
