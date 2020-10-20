@@ -145,13 +145,13 @@ func ReadShard(reader io.Reader, startAfter uint64) ([]*WriteRequest, error) {
 				return nil, fmt.Errorf("unmarshal request: %w", err)
 			}
 
+			if protoRequest.Height <= startAfter {
+				continue
+			}
+
 			req, err := NewWriteRequestFromProto(&protoRequest)
 			if err != nil {
 				return nil, fmt.Errorf("request from proto: %w", err)
-			}
-
-			if req.Height <= startAfter {
-				continue
 			}
 
 			requests = append(requests, req)

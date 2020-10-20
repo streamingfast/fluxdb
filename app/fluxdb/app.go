@@ -54,8 +54,9 @@ type Config struct {
 	// Available for reproc-injector only
 	ReprocInjectorShardIndex uint64
 
-	DisablePipeline  bool // Connects to blocks pipeline, can be used to have a development server only fluxdb
-	WriteOnEachBlock bool // Writes to storage engine at each irreversible block, can be used in development to flush more rapidly to storage
+	NoIndexingOnWrite bool // Disables indexing when injecting data in write mode, should never be used in production
+	DisablePipeline   bool // Connects to blocks pipeline, can be used to have a development server only fluxdb
+	WriteOnEachBlock  bool // Writes to storage engine at each irreversible block, can be used in development to flush more rapidly to storage
 }
 
 type Modules struct {
@@ -118,7 +119,7 @@ func (a *App) Run() error {
 }
 
 func (a *App) startStandard(blocksStore dstore.Store, kvStore store.KVStore) error {
-	db := fluxdb.New(kvStore, a.modules.BlockFilter, a.modules.BlockMapper)
+	db := fluxdb.New(kvStore, a.modules.BlockFilter, a.modules.BlockMapper, a.config.NoIndexingOnWrite)
 
 	zlog.Info("initiating fluxdb handler")
 	fluxDBHandler := fluxdb.NewHandler(db)
@@ -226,7 +227,7 @@ func appendPath(baseURL string, suffix string) (string, error) {
 }
 
 func (a *App) startReprocInjector(kvStore store.KVStore) error {
-	db := fluxdb.New(kvStore, a.modules.BlockFilter, a.modules.BlockMapper)
+	db := fluxdb.New(kvStore, a.modules.BlockFilter, a.modules.BlockMapper, a.config.NoIndexingOnWrite)
 
 	db.SetSharding(int(a.config.ReprocInjectorShardIndex), int(a.config.ReprocShardCount))
 	if err := db.CheckCleanDBForSharding(); err != nil {

@@ -300,9 +300,6 @@ func (s *KVStore) scanInfiniteRange(ctx context.Context, table byte, keyStart []
 	return s.scanRange(ctx, table, keyStart, nil, limit, onRow)
 }
 
-// There is most probably lots of repetition between this batch and the bigtable version.
-// We should most probably improve the sharing by having a `baseBatch` struct or something
-// like that.
 type batch struct {
 	store          *KVStore
 	count          int
@@ -326,11 +323,12 @@ func (b *batch) Reset() {
 	}
 }
 
-// For now, if flush each time we have 100 pending mutations in total, would need to be
-// adjusted and to check if we would be able to improve throughput by using "batch" mode
-// of bbolt (hopefully, exposed correctly in Hidalgo).
 var maxMutationCount = 100
 
+// FIXME: Instead of re-adding our custom logic of 100 max mutation count in there, we should
+//        instead rely on `kvdb.Batch` heuristics to determine if full or not. Only thing to consider
+//        when doing this refactoring (i.e. removing a flush on 100 rows written) is to make "100%"
+//        sure that last checkpoint mutations are always ever written last!
 func (b *batch) FlushIfFull(ctx context.Context) error {
 	if b.count <= maxMutationCount {
 		// We are not there yet
@@ -370,7 +368,6 @@ func (b *batch) Flush(ctx context.Context) error {
 		ctx, span := dtracing.StartSpan(ctx, "apply bulk updates", "table", tblName, "mutation_count", muts.len())
 
 		for key, value := range muts.mappings {
-			// FIXME: What's the best pattern to iterate over map for a custom implementation...
 			err := b.store.db.Put(ctx, packKey(tblName, []byte(key)), value)
 			if err != nil {
 				return fmt.Errorf("unable to add table %q key %q to tx: %w", tblName, key, err)

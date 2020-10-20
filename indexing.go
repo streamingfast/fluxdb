@@ -29,6 +29,11 @@ import (
 )
 
 func (fdb *FluxDB) IndexTables(ctx context.Context) error {
+	if fdb.noIndexing {
+		zlog.Debug("indexing is disabled, nothing to do")
+		return nil
+	}
+
 	ctx, span := dtracing.StartSpan(ctx, "index tables")
 	defer span.End()
 
