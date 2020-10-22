@@ -31,8 +31,8 @@ type FluxDB struct {
 	blockMapper BlockMapper
 	blockFilter func(blk *bstream.Block) error
 
-	idxCache   *indexCache
-	noIndexing bool
+	idxCache        *indexCache
+	disableIndexing bool
 
 	SpeculativeWritesFetcher func(ctx context.Context, headBlockID string, upToHeight uint64) (speculativeWrites []*WriteRequest)
 	HeadBlock                func(ctx context.Context) bstream.BlockRef
@@ -44,14 +44,14 @@ type FluxDB struct {
 	ready bool
 }
 
-func New(kvStore store.KVStore, blockFilter func(blk *bstream.Block) error, blockMapper BlockMapper, noIndexing bool) *FluxDB {
+func New(kvStore store.KVStore, blockFilter func(blk *bstream.Block) error, blockMapper BlockMapper, disableIndexing bool) *FluxDB {
 	return &FluxDB{
-		Shutter:     shutter.New(),
-		store:       kvStore,
-		blockFilter: blockFilter,
-		blockMapper: blockMapper,
-		idxCache:    newIndexCache(),
-		noIndexing:  noIndexing,
+		Shutter:         shutter.New(),
+		store:           kvStore,
+		blockFilter:     blockFilter,
+		blockMapper:     blockMapper,
+		idxCache:        newIndexCache(),
+		disableIndexing: disableIndexing,
 	}
 }
 

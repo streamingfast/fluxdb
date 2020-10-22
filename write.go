@@ -135,6 +135,10 @@ func (fdb *FluxDB) WriteShardingFinalCheckpoint(ctx context.Context, height uint
 	return nil
 }
 
+func (fdb *FluxDB) DeleteAllShardCheckpoints(ctx context.Context) error {
+	return fdb.store.DeleteShardsCheckpoint(ctx, []byte("shard-"))
+}
+
 func (fdb *FluxDB) writeBlock(ctx context.Context, batch store.Batch, w *WriteRequest) (err error) {
 	for _, entry := range w.SingletEntries {
 		var value []byte
@@ -159,7 +163,7 @@ func (fdb *FluxDB) writeBlock(ctx context.Context, batch store.Batch, w *WriteRe
 
 		batch.SetRow(KeyForTabletRow(row), value)
 
-		if !fdb.noIndexing {
+		if !fdb.disableIndexing {
 			// We could group `w.TabletRows` by tablet here greatly reducing the number of time
 			// we need to compute the tablet key, reducing memory allocation an GC at the same time.
 			tabletKey := KeyForTablet(row.Tablet())

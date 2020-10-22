@@ -54,9 +54,10 @@ type Config struct {
 	// Available for reproc-injector only
 	ReprocInjectorShardIndex uint64
 
-	NoIndexingOnWrite bool // Disables indexing when injecting data in write mode, should never be used in production
-	DisablePipeline   bool // Connects to blocks pipeline, can be used to have a development server only fluxdb
-	WriteOnEachBlock  bool // Writes to storage engine at each irreversible block, can be used in development to flush more rapidly to storage
+	DisableIndexing            bool // Disables indexing when injecting data in write mode, should never be used in production, present for repair jobs
+	DisableShardReconciliation bool // Do not reconcile all shard last written block to the current active last written block, should never be used in production, present for repair jobs
+	DisablePipeline            bool // Connects to blocks pipeline, can be used to have a development server only fluxdb
+	WriteOnEachBlock           bool // Writes to storage engine at each irreversible block, can be used in development to flush more rapidly to storage
 }
 
 type Modules struct {
@@ -119,7 +120,7 @@ func (a *App) Run() error {
 }
 
 func (a *App) startStandard(blocksStore dstore.Store, kvStore store.KVStore) error {
-	db := fluxdb.New(kvStore, a.modules.BlockFilter, a.modules.BlockMapper, a.config.NoIndexingOnWrite)
+	db := fluxdb.New(kvStore, a.modules.BlockFilter, a.modules.BlockMapper, a.config.DisableIndexing)
 
 	zlog.Info("initiating fluxdb handler")
 	fluxDBHandler := fluxdb.NewHandler(db)
@@ -227,11 +228,16 @@ func appendPath(baseURL string, suffix string) (string, error) {
 }
 
 func (a *App) startReprocInjector(kvStore store.KVStore) error {
-	db := fluxdb.New(kvStore, a.modules.BlockFilter, a.modules.BlockMapper, a.config.NoIndexingOnWrite)
+	db := fluxdb.New(kvStore, a.modules.BlockFilter, a.modules.BlockMapper, a.config.DisableIndexing)
 
 	db.SetSharding(int(a.config.ReprocInjectorShardIndex), int(a.config.ReprocShardCount))
-	if err := db.CheckCleanDBForSharding(); err != nil {
-		return fmt.Errorf("db is not clean before injecting shards: %w", err)
+
+	// We allow re-injecting shards when disable shard reconciliation is set to true, which mean we are doing a
+	// repair job. Hence when the option is not set, we ensure the database is clean before proceeding.
+	if !a.config.DisableShardReconciliation {
+		if err := db.CheckCleanDBForSharding(); err != nil {
+			return fmt.Errorf("db is not clean before injecting shards: %w", err)
+		}
 	}
 
 	shardStoreFullURL, err := appendPath(a.config.ReprocShardStoreURL, fmt.Sprintf("%03d", a.config.ReprocInjectorShardIndex))
@@ -261,6 +267,12 @@ func (a *App) startReprocInjector(kvStore store.KVStore) error {
 	height, lastBlock, err := db.VerifyAllShardsWritten(ctx)
 	if err != nil {
 		zlog.Info("all shards are not done yet, not updating last block", zap.Error(err))
+		a.Shutdown(nil)
+		return nil
+	}
+
+	if a.config.DisableShardReconciliation {
+		zlog.Info("all shards done injecting but configured to not reconcile shard checkpoint as last block checkpoint, exiting")
 		a.Shutdown(nil)
 		return nil
 	}

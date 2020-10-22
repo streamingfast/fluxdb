@@ -83,4 +83,6 @@ type KVStore interface {
 	FetchLastWrittenCheckpoint(ctx context.Context, key []byte) (value []byte, err error)
 
 	ScanLastShardsWrittenCheckpoint(ctx context.Context, keyPrefix []byte, onKeyValue OnKeyValue) error
+
+	DeleteShardsCheckpoint(ctx context.Context, keyPrefix []byte) error
 }

@@ -29,7 +29,7 @@ import (
 )
 
 func (fdb *FluxDB) IndexTables(ctx context.Context) error {
-	if fdb.noIndexing {
+	if fdb.disableIndexing {
 		zlog.Debug("indexing is disabled, nothing to do")
 		return nil
 	}

@@ -176,6 +176,20 @@ func (s *KVStore) ScanLastShardsWrittenCheckpoint(ctx context.Context, keyPrefix
 	return nil
 }
 
+func (s *KVStore) DeleteShardsCheckpoint(ctx context.Context, keyPrefix []byte) error {
+	var keys [][]byte
+	err := s.scanPrefix(ctx, TblPrefixLastCheckpoint, keyPrefix, kv.Unlimited, true, func(key []byte, _ []byte) error {
+		keys = append(keys, key)
+		return nil
+	})
+
+	if err != nil {
+		return fmt.Errorf("shard prefix %x scan on table %q: %w", keyPrefix, TblPrefixLastCheckpoint, err)
+	}
+
+	return s.db.BatchDelete(ctx, packKeys(TblPrefixLastCheckpoint, keys))
+}
+
 func (s *KVStore) fetchKey(ctx context.Context, table byte, key []byte) (out []byte, err error) {
 	kvKey := packKey(table, key)
 
@@ -267,7 +281,7 @@ func (s *KVStore) scanRange(ctx context.Context, table byte, keyStart, keyEnd []
 	if len(keyEnd) > 0 {
 		endKey = packKey(table, keyEnd)
 	} else {
-		// there is no key end key specified we go till the end of the table (1 byte more then the table prefix)
+		// there is no end key specified we go till the end of the table (1 byte more then the table prefix)
 		endKey = []byte{table + 1}
 	}
 
@@ -401,6 +415,14 @@ func (b *batch) SetLastCheckpoint(key []byte, value []byte) {
 
 func packKey(table byte, key []byte) []byte {
 	return append([]byte{table}, []byte(key)...)
+}
+
+func packKeys(table byte, keys [][]byte) [][]byte {
+	kvKeys := make([][]byte, len(keys))
+	for i, key := range keys {
+		kvKeys[i] = packKey(table, key)
+	}
+	return kvKeys
 }
 
 func unpackKey(packedKey []byte) (table byte, key []byte) {
