@@ -264,7 +264,7 @@ func (a *App) startReprocInjector(kvStore store.KVStore) error {
 	}
 
 	ctx := context.Background()
-	height, lastBlock, err := db.VerifyAllShardsWritten(ctx)
+	stats, err := db.VerifyAllShardsWritten(ctx)
 	if err != nil {
 		zlog.Info("all shards are not done yet, not updating last block", zap.Error(err))
 		a.Shutdown(nil)
@@ -277,8 +277,8 @@ func (a *App) startReprocInjector(kvStore store.KVStore) error {
 		return nil
 	}
 
-	zlog.Info("all shards done injecting, setting checkpoint to last block", zap.Stringer("last_block", lastBlock))
-	err = db.WriteShardingFinalCheckpoint(ctx, height, lastBlock)
+	zlog.Info("all shards done injecting, setting checkpoint to last block", zap.Stringer("last_block", stats.ReferenceBlockRef))
+	err = db.WriteShardingFinalCheckpoint(ctx, stats.HighestHeight, stats.ReferenceBlockRef)
 	if err != nil {
 		return fmt.Errorf("cannot write final checkpoint: %w", err)
 	}

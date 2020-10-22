@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path"
+	"strings"
 	"testing"
 	"time"
 
@@ -77,6 +78,9 @@ func runTests(t *testing.T, scratchDirectory string) {
 	db.shardCount = shardCount
 
 	// Injection of each shard is done individually, each store pointing into the shard directory directly
+	var verifyErrors []error
+	var lastShardProgressStats *ShardProgressStats
+	wroteFinalCheckpoint := false
 	for i := 0; i < shardCount; i++ {
 		db.shardIndex = i
 
@@ -87,17 +91,30 @@ func runTests(t *testing.T, scratchDirectory string) {
 		err = injector.Run()
 		require.NoError(t, err, "Unable to reinject all shards correctly for shard index %03d", i)
 
-		height, lastBlock, err := db.VerifyAllShardsWritten(ctx)
-		require.Equal(t, uint64(3), height)
-		require.Equal(t, uint64(3), lastBlock.Num())
-		require.Equal(t, "00000003aa", lastBlock.ID())
+		stats, err := db.VerifyAllShardsWritten(ctx)
+		require.Equal(t, uint64(3), stats.HighestHeight)
+		require.Equal(t, uint64(3), stats.ReferenceBlockRef.Num())
+		require.Equal(t, "00000003aa", stats.ReferenceBlockRef.ID())
+		lastShardProgressStats = stats
 
 		if err == nil {
-			zlog.Info("all shards done injecting, setting checkpoint to last block", zap.Stringer("last_block", lastBlock))
-			err = db.WriteShardingFinalCheckpoint(ctx, height, lastBlock)
+			zlog.Info("all shards done injecting, setting checkpoint to last block", zap.Stringer("last_block", stats.ReferenceBlockRef))
+			err = db.WriteShardingFinalCheckpoint(ctx, stats.HighestHeight, stats.ReferenceBlockRef)
 			require.NoError(t, err)
+
+			wroteFinalCheckpoint = true
+		} else {
+			verifyErrors = append(verifyErrors, err)
 		}
 	}
+
+	if !wroteFinalCheckpoint && lastShardProgressStats != nil {
+		for shardIndex, shardBlock := range lastShardProgressStats.BlockRefByShard {
+			zlog.Debug("latest shard block", zap.Int("shard_index", shardIndex), zap.Stringer("last_block", shardBlock))
+		}
+	}
+
+	require.True(t, wroteFinalCheckpoint, "Should have written final checkpoint but did not: (count: %d, errors: %s)", len(verifyErrors), strings.Join(errorsToStrings(verifyErrors), ", "))
 
 	// Act like a standard (non-sharding) instance from this point
 	db.shardCount = 0
@@ -120,6 +137,15 @@ func runTests(t *testing.T, scratchDirectory string) {
 
 	tablet2Rows, err := db.ReadTabletAt(ctx, 3, tablet2, nil)
 	assert.Equal(t, []TabletRow{tablet2.row(t, 3, "001", "t2 r1 #3"), tablet2.row(t, 2, "002", "t2 r2 #2")}, tablet2Rows)
+}
+
+func errorsToStrings(errs []error) (out []string) {
+	out = make([]string, len(errs))
+	for i, err := range errs {
+		out[i] = err.Error()
+	}
+
+	return out
 }
 
 func streamBlock(t *testing.T, sharder *Sharder, id, libID string, request *WriteRequest) {
