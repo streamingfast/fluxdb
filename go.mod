@@ -10,6 +10,7 @@ require (
 	github.com/dfuse-io/dmetrics v0.0.0-20200508170817-3b8cb01fee68
 	github.com/dfuse-io/dstore v0.1.1-0.20200819043022-7cdd92b6d8a9
 	github.com/dfuse-io/dtracing v0.0.0-20200417133307-c09302668d0c
+	github.com/dfuse-io/jsonpb v0.0.0-20200602171045-28535c4016a2
 	github.com/dfuse-io/kvdb v0.0.2-0.20201013164626-89b668e6bd69
 	github.com/dfuse-io/logging v0.0.0-20200908182738-02ce9b245eeb
 	github.com/dfuse-io/pbgo v0.0.6-0.20200819050623-1bfd94a6868d
@@ -23,6 +24,7 @@ require (
 	github.com/prometheus/client_model v0.1.0 // indirect
 	github.com/stretchr/testify v1.4.0
 	go.opencensus.io v0.22.3
+	go.uber.org/multierr v1.5.0
 	go.uber.org/zap v1.15.0
 	gopkg.in/yaml.v2 v2.2.8 // indirect
 )

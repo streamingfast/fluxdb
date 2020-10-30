@@ -15,14 +15,18 @@
 package fluxdb
 
 import (
+	"encoding/hex"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"testing"
 
 	"github.com/dfuse-io/fluxdb/store/kv"
+	"github.com/dfuse-io/jsonpb"
 	_ "github.com/dfuse-io/kvdb/store/badger"
 	_ "github.com/dfuse-io/kvdb/store/bigkv"
+	pbfluxdb "github.com/dfuse-io/pbgo/dfuse/fluxdb/v1"
+	"github.com/golang/protobuf/proto"
 	"github.com/stretchr/testify/require"
 )
 
@@ -39,4 +43,19 @@ func NewTestDB(t *testing.T) (*FluxDB, func()) {
 	}
 
 	return db, closer
+}
+
+func TestCheckpoint_Unmarshal(t *testing.T) {
+	hexString := "08c1c3f21a124708c1c3f21a124030333563613163316564376562303335346362643131303033366433656636663630383830623265643562643833666562626431616136663239616332346564"
+	data, err := hex.DecodeString(hexString)
+	require.NoError(t, err)
+
+	checkpoint := &pbfluxdb.Checkpoint{}
+	err = proto.Unmarshal(data, checkpoint)
+	require.NoError(t, err)
+
+	out, err := jsonpb.MarshalIndentToString(checkpoint, "  ")
+	require.NoError(t, err)
+
+	fmt.Println(out)
 }
