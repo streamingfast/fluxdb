@@ -15,13 +15,11 @@
 package fluxdb
 
 import (
-	"os"
-
 	"github.com/dfuse-io/logging"
 	"go.uber.org/zap"
 )
 
-var traceEnabled = os.Getenv("TRACE") == "true"
+var traceEnabled = logging.IsTraceEnabled("fluxdb", "github.com/dfuse-io/fluxdb")
 var zlog = zap.NewNop()
 
 func init() {

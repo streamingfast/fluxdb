@@ -129,11 +129,13 @@ func (fdb *FluxDB) ReindexTablets(ctx context.Context, height uint64, lowerBound
 		return 0, 0, fmt.Errorf("scan: %w", err)
 	}
 
+	orderedIndexTablets := orderedIndexTabletKeys(indexKeysPerTablet)
+
 	zlog.Debug("re-indexing tablets", zap.Int("tablet_count", len(indexKeysPerTablet)), zap.Int("index_count", indexCount))
 	if dryRun {
 		if traceEnabled {
-			for _, entries := range indexKeysPerTablet {
-				for _, entry := range entries {
+			for _, tabletKey := range orderedIndexTablets {
+				for _, entry := range indexKeysPerTablet[tabletKey] {
 					zlog.Debug("would re-index tablet index", zap.Stringer("id", entry))
 				}
 			}
@@ -143,7 +145,8 @@ func (fdb *FluxDB) ReindexTablets(ctx context.Context, height uint64, lowerBound
 	}
 
 	batch := fdb.store.NewBatch(zlog)
-	for key, entries := range indexKeysPerTablet {
+	for _, key := range orderedIndexTablets {
+		entries := indexKeysPerTablet[key]
 		tablet, err := NewTablet([]byte(key))
 		if err != nil {
 			return 0, 0, fmt.Errorf("new tablet for key %x: %w", []byte(key), err)
@@ -163,6 +166,11 @@ func (fdb *FluxDB) ReindexTablets(ctx context.Context, height uint64, lowerBound
 			value, err := newIndexSingletEntry(indexSinglet, index).MarshalValue()
 			if err != nil {
 				return 0, 0, fmt.Errorf("index entry to proto: %w", err)
+			}
+
+			// When above 25MB, flag as being a big index
+			if len(value) > 25*1000*1000 {
+				zlog.Warn("index singlet pretty heavy", zap.Stringer("index_entry", entry), zap.Int("byte_count", len(value)))
 			}
 
 			zlog.Debug("re-indexed tablet, adding it to batch", zap.Stringer("index", entry))
@@ -218,6 +226,11 @@ func (fdb *FluxDB) ReindexTablet(ctx context.Context, height uint64, tablet Tabl
 	value, err := newIndexSingletEntry(indexSinglet, reindex).MarshalValue()
 	if err != nil {
 		return nil, false, fmt.Errorf("index entry to proto: %w", err)
+	}
+
+	// When above 25MB, flag as being a big index
+	if len(value) > 25*1000*1000 {
+		zlog.Warn("index singlet pretty heavy", zap.Stringer("index_entry", indexEntry), zap.Int("byte_count", len(value)))
 	}
 
 	batch := fdb.store.NewBatch(zlog)
@@ -532,5 +545,20 @@ func (m *primaryKeyToHeightMap) rowKeys(tablet Tablet, height uint64) (keys [][]
 		i++
 	}
 
+	return
+}
+
+func orderedIndexTabletKeys(mappings map[string][]indexSingletEntry) (out []string) {
+	out = make([]string, len(mappings))
+
+	i := 0
+	for key := range mappings {
+		out[i] = key
+		i++
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		return bytes.Compare([]byte(out[i]), []byte(out[j])) < 0
+	})
 	return
 }
