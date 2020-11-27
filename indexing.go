@@ -492,23 +492,7 @@ func (s indexSingletEntry) IsDeletion() bool {
 }
 
 func (s indexSingletEntry) MarshalValue() ([]byte, error) {
-	out := &pbfluxdb.TabletIndex{
-		SquelchedCount: s.index.SquelchCount,
-		Entries:        make([]*pbfluxdb.TabletIndexEntry, s.index.PrimaryKeyToHeight.len()),
-	}
-
-	i := 0
-	for primaryKey, height := range s.index.PrimaryKeyToHeight.mappings {
-		out.Entries[i] = &pbfluxdb.TabletIndexEntry{PrimaryKey: []byte(primaryKey), Height: height.(uint64)}
-		i++
-	}
-
-	value, err := proto.Marshal(out)
-	if err != nil {
-		return nil, fmt.Errorf("marshal index: %w", err)
-	}
-
-	return value, nil
+	return s.index.MarshalValue()
 }
 
 type primaryKeyToHeightMap struct {

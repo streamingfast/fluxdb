@@ -19,6 +19,9 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math"
+
+	pbfluxdb "github.com/dfuse-io/pbgo/dfuse/fluxdb/v1"
+	"github.com/golang/protobuf/proto"
 )
 
 // TabletFactory accepts a tablet identifier bytes and convert it into a valid Tablet
@@ -379,6 +382,26 @@ func (i *TabletIndex) Rows(tablet Tablet) (rows []TabletRow, err error) {
 	}
 
 	return
+}
+
+func (i *TabletIndex) MarshalValue() ([]byte, error) {
+	out := &pbfluxdb.TabletIndex{
+		SquelchedCount: i.SquelchCount,
+		Entries:        make([]*pbfluxdb.TabletIndexEntry, i.PrimaryKeyToHeight.len()),
+	}
+
+	j := 0
+	for primaryKey, height := range i.PrimaryKeyToHeight.mappings {
+		out.Entries[j] = &pbfluxdb.TabletIndexEntry{PrimaryKey: []byte(primaryKey), Height: height.(uint64)}
+		j++
+	}
+
+	value, err := proto.Marshal(out)
+	if err != nil {
+		return nil, fmt.Errorf("marshal index: %w", err)
+	}
+
+	return value, nil
 }
 
 type primaryKeyToTabletRowMap struct {
