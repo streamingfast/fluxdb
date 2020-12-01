@@ -31,8 +31,10 @@ type FluxDB struct {
 	blockMapper BlockMapper
 	blockFilter func(blk *bstream.Block) error
 
-	idxCache        *indexCache
-	disableIndexing bool
+	idxCache              *indexCache
+	disableIndexing       bool
+	ignoreIndexRangeStart uint64
+	ignoreIndexRangeStop  uint64
 
 	SpeculativeWritesFetcher func(ctx context.Context, headBlockID string, upToHeight uint64) (speculativeWrites []*WriteRequest)
 	HeadBlock                func(ctx context.Context) bstream.BlockRef
@@ -105,6 +107,11 @@ func (fdb *FluxDB) SetSharding(shardIndex, shardCount int) {
 
 func (fdb *FluxDB) SetStopBlock(stopBlock uint64) {
 	fdb.stopBlock = stopBlock
+}
+
+func (fdb *FluxDB) SetIgnoreIndexRange(startBlock, stopBlock uint64) {
+	fdb.ignoreIndexRangeStart = startBlock
+	fdb.ignoreIndexRangeStop = stopBlock
 }
 
 func (fdb *FluxDB) IsSharding() bool {

@@ -264,13 +264,14 @@ func (fdb *FluxDB) indexTablet(ctx context.Context, height uint64, tablet Tablet
 	if index == nil && !skipFromStore {
 		zlog.Debug("index not in cache, checking in storage")
 		indexSinglet := newIndexSingletFromKey(tabletKey)
-		indexEntry, err := fdb.ReadSingletEntryAt(ctx, indexSinglet, height-1, nil)
+
+		var err error
+		index, err = fdb.fetchIndex(ctx, indexSinglet, height-1)
 		if err != nil {
 			return nil, fmt.Errorf("get index %s at height %d: %w", tablet, height, err)
 		}
 
-		if indexEntry != nil {
-			index = indexEntry.(indexSingletEntry).index
+		if index != nil {
 			zlog.Debug("found tablet index in store", zap.Uint64("at_height", index.AtHeight))
 		}
 	}
@@ -317,6 +318,45 @@ func (fdb *FluxDB) indexTablet(ctx context.Context, height uint64, tablet Tablet
 	index.SquelchCount = uint64(count)
 
 	return index, nil
+}
+
+func (fdb *FluxDB) fetchIndex(ctx context.Context, singlet indexSinglet, height uint64) (*TabletIndex, error) {
+	actualHeight := height
+	if fdb.isInIgnoreIndexRange(actualHeight) {
+		// We ignore between 150M - 155M but the current height is between this, move to 150M so we pick an index that happened before this range
+		actualHeight = fdb.ignoreIndexRangeStart
+	}
+
+	indexEntry, err := fdb.ReadSingletEntryAt(ctx, singlet, actualHeight, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if indexEntry == nil {
+		return nil, nil
+	}
+
+	index := indexEntry.(indexSingletEntry).index
+	if fdb.isInIgnoreIndexRange(index.AtHeight) {
+		// We ignore between 150M - 155M but the current index is in it, re-fetch with 150M so we pick an index that happened before this range
+		return fdb.fetchIndex(ctx, singlet, fdb.ignoreIndexRangeStart)
+	}
+
+	return index, nil
+}
+
+func (fdb *FluxDB) isInIgnoreIndexRange(height uint64) bool {
+	// The range must be defined at both end
+	if fdb.ignoreIndexRangeStart == 0 || fdb.ignoreIndexRangeStop == 0 {
+		return false
+	}
+
+	if fdb.ignoreIndexRangeStart >= fdb.ignoreIndexRangeStop {
+		zlog.Warn("index ignore range must be be valid, got start after stop", zap.Uint64("start", fdb.ignoreIndexRangeStart), zap.Uint64("stop", fdb.ignoreIndexRangeStop))
+		return false
+	}
+
+	return height > fdb.ignoreIndexRangeStart && height <= fdb.ignoreIndexRangeStop
 }
 
 // ReadTabletIndexAt returns the latest active index at the provided height. If there is

@@ -54,10 +54,12 @@ type Config struct {
 	// Available for reproc-injector only
 	ReprocInjectorShardIndex uint64
 
-	DisableIndexing            bool // Disables indexing when injecting data in write mode, should never be used in production, present for repair jobs
-	DisableShardReconciliation bool // Do not reconcile all shard last written block to the current active last written block, should never be used in production, present for repair jobs
-	DisablePipeline            bool // Connects to blocks pipeline, can be used to have a development server only fluxdb
-	WriteOnEachBlock           bool // Writes to storage engine at each irreversible block, can be used in development to flush more rapidly to storage
+	DisableIndexing            bool   // Disables indexing when injecting data in write mode, should never be used in production, present for repair jobs
+	DisableShardReconciliation bool   // Do not reconcile all shard last written block to the current active last written block, should never be used in production, present for repair jobs
+	DisablePipeline            bool   // Connects to blocks pipeline, can be used to have a development server only fluxdb
+	IgnoreIndexRangeStart      uint64 // When indexing a tablet, ignore an existing an index if it's between this range start boundary, both start/stop must be defined to be taken into account
+	IgnoreIndexRangeStop       uint64 // When indexing a tablet, ignore an existing an index if it's between this range stop boundary, both start/stop must be defined to be taken into account
+	WriteOnEachBlock           bool   // Writes to storage engine at each irreversible block, can be used in development to flush more rapidly to storage
 }
 
 type Modules struct {
@@ -121,6 +123,9 @@ func (a *App) Run() error {
 
 func (a *App) startStandard(blocksStore dstore.Store, kvStore store.KVStore) error {
 	db := fluxdb.New(kvStore, a.modules.BlockFilter, a.modules.BlockMapper, a.config.DisableIndexing)
+	if a.config.IgnoreIndexRangeStart != 0 && a.config.IgnoreIndexRangeStop != 0 {
+		db.SetIgnoreIndexRange(a.config.IgnoreIndexRangeStart, a.config.IgnoreIndexRangeStop)
+	}
 
 	zlog.Info("initiating fluxdb handler")
 	fluxDBHandler := fluxdb.NewHandler(db)
@@ -229,6 +234,9 @@ func appendPath(baseURL string, suffix string) (string, error) {
 
 func (a *App) startReprocInjector(kvStore store.KVStore) error {
 	db := fluxdb.New(kvStore, a.modules.BlockFilter, a.modules.BlockMapper, a.config.DisableIndexing)
+	if a.config.IgnoreIndexRangeStart != 0 && a.config.IgnoreIndexRangeStop != 0 {
+		db.SetIgnoreIndexRange(a.config.IgnoreIndexRangeStart, a.config.IgnoreIndexRangeStop)
+	}
 
 	db.SetSharding(int(a.config.ReprocInjectorShardIndex), int(a.config.ReprocShardCount))
 
