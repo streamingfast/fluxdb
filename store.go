@@ -35,11 +35,5 @@ func NewKVStore(dsnString string) (store.KVStore, error) {
 	}
 
 	zlog.Info("creating underlying kv store engine", zap.String("scheme", dsn.Scheme), zap.String("dsn", dsnString))
-
-	switch dsn.Scheme {
-	case "badger", "tikv", "bigkv":
-		return kv.NewStore(dsnString)
-	default:
-		return nil, fmt.Errorf("unknown scheme %q from dsn %q", dsn.Scheme, dsnString)
-	}
+	return kv.NewStore(dsnString)
 }
