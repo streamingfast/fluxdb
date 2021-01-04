@@ -113,10 +113,12 @@ func (fdb *FluxDB) BuildPipeline(
 			// Only when we do **not** start from the beginning (i.e. startBlock is the empty block ref), that the
 			// forkable should be initialized with an initial LIB value. Otherwise, when we start fresh, the forkable
 			// will automatically set its LIB to the first streamable block of the chain.
+			zlog.Info("Setting forkable with exclusive LIB", zap.Stringer("lib", startBlock))
 			forkableOptions = append(forkableOptions, forkable.WithExclusiveLIB(startBlock))
 		}
 
 		if blockMeta != nil {
+			zlog.Info("configuring irreversibility checker on forkable handler")
 			forkableOptions = append(forkableOptions, forkable.WithIrreversibilityChecker(blockMeta, 5*time.Second))
 		}
 
