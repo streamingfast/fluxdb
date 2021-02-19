@@ -198,6 +198,10 @@ func (fdb *FluxDB) writeBlock(ctx context.Context, batch store.Batch, w *WriteRe
 	}
 
 	for _, row := range w.TabletRows {
+		if hackIsRestrictedTablet(row.Tablet()) {
+			continue
+		}
+
 		var value []byte
 		if !row.IsDeletion() {
 			value, err = row.MarshalValue()

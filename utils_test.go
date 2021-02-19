@@ -54,8 +54,6 @@ func TestCheckpoint_Unmarshal(t *testing.T) {
 	err = proto.Unmarshal(data, checkpoint)
 	require.NoError(t, err)
 
-	out, err := jsonpb.MarshalIndentToString(checkpoint, "  ")
+	_, err = jsonpb.MarshalIndentToString(checkpoint, "  ")
 	require.NoError(t, err)
-
-	fmt.Println(out)
 }

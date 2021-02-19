@@ -43,6 +43,10 @@ func (fdb *FluxDB) ReadTabletAt(
 	zlogger := logging.Logger(ctx, zlog)
 	zlogger.Debug("reading tablet", zap.Stringer("tablet", tablet), zap.Uint64("height", height))
 
+	if hackIsRestrictedTablet(tablet) {
+		return nil, ErrTemporarlyExcludedRange
+	}
+
 	idx, err := fdb.ReadTabletIndexAt(ctx, tablet, height)
 	if err != nil {
 		return nil, fmt.Errorf("fetch tablet index: %w", err)
@@ -188,6 +192,10 @@ func (fdb *FluxDB) ReadTabletRowAt(
 
 	zlogger := logging.Logger(ctx, zlog)
 	zlogger.Debug("reading tablet row", zap.Stringer("tablet", tablet), zap.Uint64("height", height), zap.Stringer("primary_key", primaryKey))
+
+	if hackIsRestrictedTablet(tablet) {
+		return nil, ErrTemporarlyExcludedRange
+	}
 
 	idx, err := fdb.ReadTabletIndexAt(ctx, tablet, height)
 	if err != nil {
