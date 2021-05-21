@@ -18,7 +18,10 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
+	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/dfuse-io/bstream"
 	"github.com/dfuse-io/dtracing"
@@ -29,6 +32,8 @@ import (
 	"github.com/golang/protobuf/proto"
 	"go.uber.org/zap"
 )
+
+var printTabletStats = os.Getenv("STATEDB_SIZE_STATS") != ""
 
 func (fdb *FluxDB) WriteBatch(ctx context.Context, w []*WriteRequest) error {
 	ctx, span := dtracing.StartSpan(ctx, "write batch", "write_request_count", len(w))
@@ -185,12 +190,20 @@ func (fdb *FluxDB) DeleteAllShardCheckpoints(ctx context.Context) error {
 }
 
 func (fdb *FluxDB) writeBlock(ctx context.Context, batch store.Batch, w *WriteRequest) (err error) {
+
+	totalSize := 0
+	indexCount := 0
+	tabletSizes := make(map[string]int)
+
 	for _, entry := range w.SingletEntries {
 		var value []byte
 		if !entry.IsDeletion() {
 			value, err = entry.MarshalValue()
 			if err != nil {
 				return fmt.Errorf("singlet to proto: %w", err)
+			}
+			if printTabletStats {
+				totalSize += len(value)
 			}
 		}
 
@@ -208,6 +221,20 @@ func (fdb *FluxDB) writeBlock(ctx context.Context, batch store.Batch, w *WriteRe
 
 		batch.SetRow(KeyForTabletRow(row), value)
 
+		if printTabletStats {
+			shortName := row.String()
+			nameParts := strings.Split(shortName, ":")
+			if len(nameParts) > 3 {
+				shortName = strings.Join(nameParts[0:3], ":")
+			}
+			totalSize += len(value)
+			if size, ok := tabletSizes[shortName]; ok {
+				size += len(value)
+			} else {
+				tabletSizes[shortName] = len(value)
+			}
+		}
+
 		if !fdb.disableIndexing {
 			// We could group `w.TabletRows` by tablet here greatly reducing the number of time
 			// we need to compute the tablet key, reducing memory allocation an GC at the same time.
@@ -215,8 +242,27 @@ func (fdb *FluxDB) writeBlock(ctx context.Context, batch store.Batch, w *WriteRe
 			fdb.idxCache.IncCount(tabletKey)
 			if fdb.idxCache.shouldTriggerIndexing(tabletKey) {
 				fdb.idxCache.ScheduleIndex(tabletKey, w.Height)
+				indexCount += 1
 			}
 		}
+	}
+
+	if printTabletStats && len(tabletSizes) > 0 {
+		keys := make([]string, 0, len(tabletSizes))
+		for key := range tabletSizes {
+			keys = append(keys, key)
+		}
+		sort.Slice(keys, func(i, j int) bool { return tabletSizes[keys[i]] > tabletSizes[keys[j]] })
+
+		bigTablets := []string{}
+		for i, key := range keys {
+			if i > 4 {
+				break
+			}
+			bigTablets = append(bigTablets, fmt.Sprintf("%s, %d\n", key, tabletSizes[key]))
+		}
+
+		zlog.Info("statedb size stats", zap.Strings("biggest_tablets", bigTablets), zap.Int("total_size", totalSize), zap.Uint64("block_num", w.BlockRef.Num()), zap.Int("indexes_created", indexCount))
 	}
 
 	return fdb.setLastCheckpoint(batch, w.Height, w.BlockRef)
