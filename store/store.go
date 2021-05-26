@@ -35,7 +35,14 @@ func (k Key) String() string {
 
 type Batch interface {
 	Flush(ctx context.Context) error
-	FlushIfFull(ctx context.Context) error
+	FlushIfFull(ctx context.Context) (flushed bool, err error)
+
+	// PurgeRow is used to completely delete an element for the database.
+	//
+	// **Important** If a tablet row/singlet entry was deleted, you should use
+	//               instead `SetRow(key, nil)` which is the correct way to represent
+	//               a deleted row in FluxDB system.
+	PurgeRow(key []byte)
 
 	// FIXME: Maybe the batch "adder/setter" should not event care about the key and compute
 	//        it straight? Since this is per storage engine, it would be a good place since

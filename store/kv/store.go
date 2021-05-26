@@ -315,9 +315,11 @@ func (s *KVStore) scanInfiniteRange(ctx context.Context, table byte, keyStart []
 }
 
 type batch struct {
-	store          *KVStore
-	count          int
-	tableMutations map[byte]*keyToValueMap
+	store              *KVStore
+	deletionCount      int
+	mutationCount      int
+	tableRowsDeletions map[string]bool
+	tableMutations     map[byte]*keyToValueMap
 
 	zlog *zap.Logger
 }
@@ -330,31 +332,33 @@ func newBatch(store *KVStore, logger *zap.Logger) *batch {
 }
 
 func (b *batch) Reset() {
-	b.count = 0
+	b.deletionCount = 0
+	b.mutationCount = 0
+	b.tableRowsDeletions = map[string]bool{}
 	b.tableMutations = map[byte]*keyToValueMap{
 		TblPrefixRows:           {mappings: map[string][]byte{}},
 		TblPrefixLastCheckpoint: {mappings: map[string][]byte{}},
 	}
 }
 
-var maxMutationCount = 100
+var maxTotalChangeCount = 100
 
 // FIXME: Instead of re-adding our custom logic of 100 max mutation count in there, we should
 //        instead rely on `kvdb.Batch` heuristics to determine if full or not. Only thing to consider
 //        when doing this refactoring (i.e. removing a flush on 100 rows written) is to make "100%"
 //        sure that last checkpoint mutations are always ever written last!
-func (b *batch) FlushIfFull(ctx context.Context) error {
-	if b.count <= maxMutationCount {
+func (b *batch) FlushIfFull(ctx context.Context) (flushed bool, err error) {
+	if b.deletionCount+b.mutationCount <= maxTotalChangeCount {
 		// We are not there yet
-		return nil
+		return false, nil
 	}
 
-	b.zlog.Debug("flushing a full batch set", zap.Int("count", b.count))
+	b.zlog.Debug("flushing a full batch set", zap.Int("deletion_count", b.deletionCount), zap.Int("mutation_count", b.mutationCount))
 	if err := b.Flush(ctx); err != nil {
-		return fmt.Errorf("flushing batch set: %w", err)
+		return false, fmt.Errorf("flushing batch set: %w", err)
 	}
 
-	return nil
+	return true, nil
 }
 
 func (b *batch) Flush(ctx context.Context) error {
@@ -362,7 +366,41 @@ func (b *batch) Flush(ctx context.Context) error {
 	defer span.End()
 
 	b.zlog.Debug("flushing batch set")
+	if err := b.flushDeletions(ctx); err != nil {
+		return fmt.Errorf("flush deletions: %w", err)
+	}
 
+	if err := b.flushMutations(ctx); err != nil {
+		return fmt.Errorf("flush mutations: %w", err)
+	}
+
+	b.Reset()
+
+	return nil
+}
+
+func (b *batch) flushDeletions(ctx context.Context) error {
+	if len(b.tableRowsDeletions) <= 0 {
+		return nil
+	}
+
+	tblName := byte(TblPrefixRows)
+
+	keys := make([][]byte, 0, len(b.tableRowsDeletions))
+	for rowKey, shouldDelete := range b.tableRowsDeletions {
+		if shouldDelete {
+			keys = append(keys, packKey(tblName, []byte(rowKey)))
+		}
+	}
+
+	if err := b.store.db.BatchDelete(ctx, keys); err != nil {
+		return fmt.Errorf("batch delete: %w", err)
+	}
+
+	return nil
+}
+
+func (b *batch) flushMutations(ctx context.Context) error {
 	tableNames := []byte{
 		TblPrefixRows,
 
@@ -370,10 +408,8 @@ func (b *batch) Flush(ctx context.Context) error {
 		TblPrefixLastCheckpoint,
 	}
 
-	// TODO: We could eventually parallelize this, but remember, last would need to be processed last, after all others!
 	for _, tblName := range tableNames {
 		muts := b.tableMutations[tblName]
-
 		if muts.len() <= 0 {
 			continue
 		}
@@ -395,14 +431,16 @@ func (b *batch) Flush(ctx context.Context) error {
 		return fmt.Errorf("apply bulk: %w", err)
 	}
 
-	b.Reset()
-
 	return nil
 }
 
 func (b *batch) setTable(table byte, key []byte, value []byte) {
 	b.tableMutations[table].put(key, value)
-	b.count++
+	b.mutationCount++
+}
+
+func (b *batch) PurgeRow(key []byte) {
+	b.tableRowsDeletions[string(key)] = true
 }
 
 func (b *batch) SetRow(key []byte, value []byte) {
