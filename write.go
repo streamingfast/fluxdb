@@ -45,7 +45,7 @@ func (fdb *FluxDB) WriteBatch(ctx context.Context, w []*WriteRequest) error {
 			return fmt.Errorf("write block: %w", err)
 		}
 
-		if err := batch.FlushIfFull(ctx); err != nil {
+		if _, err := batch.FlushIfFull(ctx); err != nil {
 			return fmt.Errorf("flushing if full: %w", err)
 		}
 	}

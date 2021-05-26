@@ -22,6 +22,7 @@ import (
 	"sort"
 
 	"github.com/dfuse-io/dtracing"
+	"github.com/dfuse-io/fluxdb/store"
 	"github.com/dfuse-io/logging"
 	pbfluxdb "github.com/dfuse-io/pbgo/dfuse/fluxdb/v1"
 	"github.com/golang/protobuf/proto"
@@ -50,16 +51,16 @@ func (fdb *FluxDB) IndexTables(ctx context.Context) error {
 		}
 
 		zlog.Debug("indexing table", zap.Stringer("tablet", tablet), zap.Uint64("height", height))
-		if err := batch.FlushIfFull(ctx); err != nil {
+		if _, err := batch.FlushIfFull(ctx); err != nil {
 			return fmt.Errorf("flush if full: %w", err)
 		}
 
 		index, err := fdb.indexTablet(ctx, height, tablet, false, false)
 		if err != nil {
-			return fmt.Errorf("index tablet %s: %w", tablet, err)
+			return fmt.Errorf("index tablet %q: %w", tablet, err)
 		}
 
-		zlog.Debug("about to marshal index to binary",
+		zlog.Debug("about to write index to store",
 			zap.Stringer("tablet", tablet),
 			zap.Uint64("at_height", index.AtHeight),
 			zap.Uint64("squelched_count", index.SquelchCount),
@@ -67,20 +68,11 @@ func (fdb *FluxDB) IndexTables(ctx context.Context) error {
 		)
 
 		indexSinglet := newIndexSingletFromKey(tabletKey)
-		indexEntry := newIndexSingletEntry(indexSinglet, index)
-		value, err := indexEntry.MarshalValue()
-		if err != nil {
-			return fmt.Errorf("index entry to proto: %w", err)
+		if err := fdb.writeIndex(ctx, batch, index, indexSinglet); err != nil {
+			return fmt.Errorf("write index %q: %w", indexSinglet, err)
 		}
 
-		// When above 25MB, flag as being a big index
-		if len(value) > 25*1000*1000 {
-			zlog.Warn("index singlet pretty heavy", zap.Stringer("index_entry", indexEntry), zap.Int("byte_count", len(value)))
-		}
-
-		batch.SetRow(KeyForSingletEntry(indexEntry), value)
-
-		zlog.Debug("caching index in index cache", zap.Stringer("index_entry", indexEntry))
+		zlog.Debug("caching index in index cache", zap.Stringer("index_singlet", indexSinglet))
 		fdb.idxCache.CacheIndex(tabletKey, index)
 		fdb.idxCache.ResetCounter(tabletKey)
 		delete(fdb.idxCache.scheduleIndexing, string(tabletKey))
@@ -94,43 +86,12 @@ func (fdb *FluxDB) IndexTables(ctx context.Context) error {
 }
 
 func (fdb *FluxDB) ReindexTablets(ctx context.Context, height uint64, lowerBound Tablet, dryRun bool) (tabletCount int, indexCount int, err error) {
-	prefix := make([]byte, 2)
-	bigEndian.PutUint16(prefix, indexSingletCollection)
-
-	lowerBoundKey := []byte(nil)
-	if lowerBound != nil {
-		lowerBoundKey = KeyForTablet(lowerBound)
-	}
-
-	indexKeysPerTablet := map[string][]indexSingletEntry{}
-	err = fdb.store.ScanIndexKeys(ctx, prefix, func(key []byte) error {
-		entry, err := NewSingletEntryFromStorage(key, nil)
-		if err != nil {
-			return fmt.Errorf("invalid singlet key %x: %w", key, err)
-		}
-
-		if height != 0 && entry.Height() > height {
-			return nil
-		}
-
-		indexEntry := entry.(indexSingletEntry)
-		tabletKey := indexEntry.singlet.(indexSinglet).tabletKey
-
-		if bytes.Compare(tabletKey, lowerBoundKey) < 0 {
-			return nil
-		}
-
-		indexCount++
-		indexKeysPerTablet[string(tabletKey)] = append(indexKeysPerTablet[string(tabletKey)], indexEntry)
-		return nil
-	})
-
+	indexKeysPerTablet, indexCount, err := fdb.fetchTabletIndexes(ctx, height, lowerBound)
 	if err != nil {
 		return 0, 0, fmt.Errorf("scan: %w", err)
 	}
 
 	orderedIndexTablets := orderedIndexTabletKeys(indexKeysPerTablet)
-
 	zlog.Debug("re-indexing tablets", zap.Int("tablet_count", len(indexKeysPerTablet)), zap.Int("index_count", indexCount))
 	if dryRun {
 		if traceEnabled {
@@ -175,7 +136,7 @@ func (fdb *FluxDB) ReindexTablets(ctx context.Context, height uint64, lowerBound
 
 			zlog.Debug("re-indexed tablet, adding it to batch", zap.Stringer("index", entry))
 			batch.SetRow(KeyForSingletEntry(entry), value)
-			err = batch.FlushIfFull(ctx)
+			_, err = batch.FlushIfFull(ctx)
 			if err != nil {
 				return 0, 0, fmt.Errorf("write indexes: %w", err)
 			}
@@ -345,6 +306,112 @@ func (fdb *FluxDB) fetchIndex(ctx context.Context, singlet indexSinglet, height 
 	return index, nil
 }
 
+func (fdb *FluxDB) PruneTabletIndexes(ctx context.Context, pruneFrequency int, height uint64, lowerBound Tablet, dryRun bool) (tabletCount int, indexCount int, deletedIndexCount int, err error) {
+	if pruneFrequency <= 1 {
+		return 0, 0, 0, fmt.Errorf("prune frequency must be greater than 1, got %d", pruneFrequency)
+	}
+
+	indexKeysPerTablet, indexCount, err := fdb.fetchTabletIndexes(ctx, height, lowerBound)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("scan: %w", err)
+	}
+
+	orderedIndexTablets := orderedIndexTabletKeys(indexKeysPerTablet)
+	zlog.Debug("pruning tablet indexes",
+		zap.Bool("dry_run", dryRun),
+		zap.Int("frequency", pruneFrequency),
+		zap.Int("tablet_count", len(indexKeysPerTablet)),
+		zap.Int("index_count", indexCount),
+	)
+
+	batch := fdb.store.NewBatch(zlog)
+	for _, tabletKey := range orderedIndexTablets {
+		indexes := indexKeysPerTablet[tabletKey]
+
+		// If there is less index than the prune frequency requested, there is nothing to do on this tablet
+		// We add + 2 to prune frequency on the check because we always keep most current and least current
+		// indexes.
+		if len(indexes) <= pruneFrequency+2 {
+			continue
+		}
+
+		tablet, err := NewTablet([]byte(tabletKey))
+		if err != nil {
+			return 0, 0, 0, fmt.Errorf("new tablet for key %x: %w", []byte(tabletKey), err)
+		}
+
+		// We remove first and last elements (sure to be present) and sort the remaining from highest height to lowest height
+		indexes = indexes[1 : len(indexes)-1]
+		sort.Slice(indexes, func(i, j int) bool {
+			return indexes[i].height >= indexes[j].height
+		})
+
+		tabletCount++
+		for i, entry := range indexes {
+			if (i+1)%pruneFrequency == 0 {
+				deletedIndexCount++
+				if dryRun {
+					zlog.Debug("would prune tablet index", zap.Stringer("id", entry))
+					continue
+				}
+
+				batch.PurgeRow(KeyForSingletEntry(entry))
+			}
+		}
+
+		flushed, err := batch.FlushIfFull(ctx)
+		if err != nil {
+			return 0, 0, 0, fmt.Errorf("write indexes: %w", err)
+		}
+
+		if flushed {
+			zlog.Info("flushed tablet indexes up to tablet", zap.Stringer("lower_bound", tablet))
+		}
+	}
+
+	err = batch.Flush(ctx)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("write indexes: %w", err)
+	}
+
+	return tabletCount, indexCount, deletedIndexCount, nil
+}
+
+func (fdb *FluxDB) fetchTabletIndexes(ctx context.Context, height uint64, lowerBound Tablet) (indexKeysPerTablet map[string][]indexSingletEntry, indexCount int, err error) {
+	prefix := make([]byte, 2)
+	bigEndian.PutUint16(prefix, indexSingletCollection)
+
+	lowerBoundKey := []byte(nil)
+	if lowerBound != nil {
+		lowerBoundKey = KeyForTablet(lowerBound)
+	}
+
+	indexKeysPerTablet = map[string][]indexSingletEntry{}
+	err = fdb.store.ScanIndexKeys(ctx, prefix, func(key []byte) error {
+		entry, err := NewSingletEntryFromStorage(key, nil)
+		if err != nil {
+			return fmt.Errorf("invalid singlet key %x: %w", key, err)
+		}
+
+		if height != 0 && entry.Height() > height {
+			return nil
+		}
+
+		indexEntry := entry.(indexSingletEntry)
+		tabletKey := indexEntry.singlet.(indexSinglet).tabletKey
+
+		if bytes.Compare(tabletKey, lowerBoundKey) < 0 {
+			return nil
+		}
+
+		indexCount++
+		indexKeysPerTablet[string(tabletKey)] = append(indexKeysPerTablet[string(tabletKey)], indexEntry)
+		return nil
+	})
+
+	return
+}
+
 func (fdb *FluxDB) isInIgnoreIndexRange(height uint64) bool {
 	// The range must be defined at both end
 	if fdb.ignoreIndexRangeStart == 0 || fdb.ignoreIndexRangeStop == 0 {
@@ -378,6 +445,22 @@ func (fdb *FluxDB) ReadTabletIndexAt(ctx context.Context, tablet Tablet, height 
 	}
 
 	return nil, nil
+}
+
+func (fdb *FluxDB) writeIndex(ctx context.Context, batch store.Batch, index *TabletIndex, singlet indexSinglet) error {
+	indexEntry := newIndexSingletEntry(singlet, index)
+	value, err := indexEntry.MarshalValue()
+	if err != nil {
+		return fmt.Errorf("index entry to proto: %w", err)
+	}
+
+	// When above 25MB, flag as being a big index
+	if len(value) > 25*1000*1000 {
+		zlog.Warn("index singlet pretty heavy", zap.Stringer("index_entry", indexEntry), zap.Int("byte_count", len(value)))
+	}
+
+	batch.SetRow(KeyForSingletEntry(indexEntry), value)
+	return nil
 }
 
 type indexCache struct {
