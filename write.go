@@ -31,9 +31,10 @@ import (
 	pbfluxdb "github.com/dfuse-io/pbgo/dfuse/fluxdb/v1"
 	"github.com/golang/protobuf/proto"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
-var printTabletStats = os.Getenv("STATEDB_SIZE_STATS") != ""
+var logWriteBlockStats = os.Getenv("STATEDB_SIZE_STATS") != ""
 
 func (fdb *FluxDB) WriteBatch(ctx context.Context, w []*WriteRequest) error {
 	ctx, span := dtracing.StartSpan(ctx, "write batch", "write_request_count", len(w))
@@ -69,7 +70,7 @@ func (fdb *FluxDB) WriteBatch(ctx context.Context, w []*WriteRequest) error {
 	return nil
 }
 
-type ShardProgressStats struct {
+type shardProgressStats struct {
 	HighestHeight     uint64
 	BlockRefByShard   map[int]bstream.BlockRef
 	ReferenceBlockRef bstream.BlockRef
@@ -77,7 +78,7 @@ type ShardProgressStats struct {
 	MissingShards     []int
 }
 
-func (fdb *FluxDB) VerifyAllShardsWritten(ctx context.Context) (*ShardProgressStats, error) {
+func (fdb *FluxDB) VerifyAllShardsWritten(ctx context.Context) (*shardProgressStats, error) {
 	stats, err := fdb.fetchAllShardProgressStats(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("fetch shard progress: %w", err)
@@ -94,8 +95,8 @@ func (fdb *FluxDB) VerifyAllShardsWritten(ctx context.Context) (*ShardProgressSt
 	return stats, err
 }
 
-func (fdb *FluxDB) fetchAllShardProgressStats(ctx context.Context) (*ShardProgressStats, error) {
-	stats := &ShardProgressStats{
+func (fdb *FluxDB) fetchAllShardProgressStats(ctx context.Context) (*shardProgressStats, error) {
+	stats := &shardProgressStats{
 		BlockRefByShard:   map[int]bstream.BlockRef{},
 		ReferenceBlockRef: bstream.BlockRefEmpty,
 	}
@@ -190,24 +191,36 @@ func (fdb *FluxDB) DeleteAllShardCheckpoints(ctx context.Context) error {
 }
 
 func (fdb *FluxDB) writeBlock(ctx context.Context, batch store.Batch, w *WriteRequest) (err error) {
-
-	totalSize := 0
-	indexCount := 0
-	tabletSizes := make(map[string]int)
+	var stats *writeBlockStats
+	if logWriteBlockStats {
+		stats = &writeBlockStats{
+			Block:               w.BlockRef,
+			TotalSizePerSinglet: map[string]uint64{},
+			TotalSizePerTablet:  map[string]uint64{},
+		}
+	}
 
 	for _, entry := range w.SingletEntries {
 		var value []byte
+
 		if !entry.IsDeletion() {
 			value, err = entry.MarshalValue()
 			if err != nil {
 				return fmt.Errorf("singlet to proto: %w", err)
 			}
-			if printTabletStats {
-				totalSize += len(value)
-			}
 		}
 
-		batch.SetRow(KeyForSingletEntry(entry), value)
+		key := KeyForSingletEntry(entry)
+		if logWriteBlockStats {
+			singletKey := entry.Singlet().String()
+			size := uint64(len(key) + len(value))
+
+			stats.TotalSize += size
+			stats.TotalSizePerSinglet[singletKey] = stats.TotalSizePerSinglet[singletKey] + size
+			stats.SingleEntryCount++
+		}
+
+		batch.SetRow(key, value)
 	}
 
 	for _, row := range w.TabletRows {
@@ -219,53 +232,93 @@ func (fdb *FluxDB) writeBlock(ctx context.Context, batch store.Batch, w *WriteRe
 			}
 		}
 
-		batch.SetRow(KeyForTabletRow(row), value)
+		tablet := row.Tablet()
+		key := KeyForTabletRowFromParts(tablet, row.Height(), row.PrimaryKey())
 
-		if printTabletStats {
-			shortName := row.String()
-			nameParts := strings.Split(shortName, ":")
-			if len(nameParts) > 3 {
-				shortName = strings.Join(nameParts[0:3], ":")
-			}
-			totalSize += len(value)
-			if size, ok := tabletSizes[shortName]; ok {
-				size += len(value)
-			} else {
-				tabletSizes[shortName] = len(value)
-			}
+		if logWriteBlockStats {
+			tabletKey := tablet.String()
+			size := uint64(len(key) + len(value))
+
+			stats.TotalSize += size
+			stats.TotalSizePerTablet[tabletKey] = stats.TotalSizePerTablet[tabletKey] + size
+			stats.TabletRowCount++
 		}
+
+		batch.SetRow(key, value)
 
 		if !fdb.disableIndexing {
 			// We could group `w.TabletRows` by tablet here greatly reducing the number of time
 			// we need to compute the tablet key, reducing memory allocation an GC at the same time.
-			tabletKey := KeyForTablet(row.Tablet())
+			tabletKey := KeyForTablet(tablet)
 			fdb.idxCache.IncCount(tabletKey)
 			if fdb.idxCache.shouldTriggerIndexing(tabletKey) {
 				fdb.idxCache.ScheduleIndex(tabletKey, w.Height)
-				indexCount += 1
 			}
 		}
 	}
 
-	if printTabletStats && len(tabletSizes) > 0 {
-		keys := make([]string, 0, len(tabletSizes))
-		for key := range tabletSizes {
-			keys = append(keys, key)
-		}
-		sort.Slice(keys, func(i, j int) bool { return tabletSizes[keys[i]] > tabletSizes[keys[j]] })
-
-		bigTablets := []string{}
-		for i, key := range keys {
-			if i > 4 {
-				break
-			}
-			bigTablets = append(bigTablets, fmt.Sprintf("%s, %d\n", key, tabletSizes[key]))
-		}
-
-		zlog.Info("statedb size stats", zap.Strings("biggest_tablets", bigTablets), zap.Int("total_size", totalSize), zap.Uint64("block_num", w.BlockRef.Num()), zap.Int("indexes_created", indexCount))
+	if logWriteBlockStats {
+		zlog.Info("write block stats", zap.Object("stats", stats))
 	}
 
 	return fdb.setLastCheckpoint(batch, w.Height, w.BlockRef)
+}
+
+type writeBlockStats struct {
+	Block               bstream.BlockRef
+	TotalSize           uint64
+	TotalSizePerSinglet map[string]uint64
+	TotalSizePerTablet  map[string]uint64
+	SingleEntryCount    uint64
+	TabletRowCount      uint64
+}
+
+func (s *writeBlockStats) MarshalLogObject(encoder zapcore.ObjectEncoder) error {
+	encoder.AddString("block", s.Block.String())
+	encoder.AddUint64("total_size_in_bytes", s.TotalSize)
+
+	if len(s.TotalSizePerSinglet) > 0 {
+		singlets := make([]string, 0, len(s.TotalSizePerSinglet))
+		for singlet := range s.TotalSizePerSinglet {
+			singlets = append(singlets, singlet)
+		}
+		sort.Slice(singlets, func(i, j int) bool { return s.TotalSizePerSinglet[singlets[i]] > s.TotalSizePerSinglet[singlets[j]] })
+
+		elements := make([]string, 0, 5)
+		for i, singlet := range singlets {
+			if i >= 5 {
+				break
+			}
+			elements = append(elements, fmt.Sprintf("%s (%d bytes)", singlet, s.TotalSizePerSinglet[singlet]))
+		}
+
+		encoder.AddString("singlet_biggest", strings.Join(elements, ", "))
+	}
+
+	if len(s.TotalSizePerTablet) > 0 {
+		tablets := make([]string, 0, len(s.TotalSizePerTablet))
+		for tablet := range s.TotalSizePerTablet {
+			tablets = append(tablets, tablet)
+		}
+		sort.Slice(tablets, func(i, j int) bool { return s.TotalSizePerTablet[tablets[i]] > s.TotalSizePerTablet[tablets[j]] })
+
+		elements := make([]string, 0, 5)
+		for i, tablet := range tablets {
+			if i >= 5 {
+				break
+			}
+			elements = append(elements, fmt.Sprintf("%s (%d bytes)", tablet, s.TotalSizePerTablet[tablet]))
+		}
+
+		encoder.AddString("tablet_biggest", strings.Join(elements, ", "))
+	}
+
+	encoder.AddInt("singlet_count", len(s.TotalSizePerSinglet))
+	encoder.AddUint64("singlet_entry_count", s.SingleEntryCount)
+	encoder.AddInt("tablet_count", len(s.TotalSizePerTablet))
+	encoder.AddUint64("tablet_row_count", s.TabletRowCount)
+
+	return nil
 }
 
 func (fdb *FluxDB) isNextBlock(ctx context.Context, writeHeight uint64) error {

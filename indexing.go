@@ -55,9 +55,21 @@ func (fdb *FluxDB) IndexTables(ctx context.Context) error {
 			return fmt.Errorf("flush if full: %w", err)
 		}
 
-		index, err := fdb.indexTablet(ctx, height, tablet, false, false)
+		index, skipped, err := fdb.indexTablet(ctx, height, tablet, false, false, false)
 		if err != nil {
 			return fmt.Errorf("index tablet %q: %w", tablet, err)
+		}
+
+		if skipped {
+			// After fetching the last index, we determined this index should not be indexed, cache the last index
+			// and delete schedule indexing for it. We do not reset counter however, since we want to actually
+			// index it later when it reached a different threshold of mutation count.
+			if index != nil {
+				fdb.idxCache.CacheIndex(tabletKey, index)
+			}
+			delete(fdb.idxCache.scheduleIndexing, string(tabletKey))
+
+			continue
 		}
 
 		zlog.Debug("about to write index to store",
@@ -119,7 +131,7 @@ func (fdb *FluxDB) ReindexTablets(ctx context.Context, height uint64, lowerBound
 
 		indexSinglet := newIndexSingletFromKey(TabletKey(key))
 		for _, entry := range entries {
-			index, err := fdb.indexTablet(ctx, entry.height, tablet, false, true)
+			index, _, err := fdb.indexTablet(ctx, entry.height, tablet, true, false, true)
 			if err != nil {
 				return 0, 0, fmt.Errorf("tablet index: %w", err)
 			}
@@ -179,7 +191,7 @@ func (fdb *FluxDB) ReindexTablet(ctx context.Context, height uint64, tablet Tabl
 
 	zlog.Debug("found existing index for height, re-computing it", zap.Stringer("index_entry", indexEntry))
 
-	reindex, err := fdb.indexTablet(ctx, indexEntry.Height(), tablet, false, true)
+	reindex, _, err := fdb.indexTablet(ctx, indexEntry.Height(), tablet, true, false, true)
 	if err != nil {
 		return nil, false, fmt.Errorf("index tablet: %w", err)
 	}
@@ -210,10 +222,9 @@ func (fdb *FluxDB) ReindexTablet(ctx context.Context, height uint64, tablet Tabl
 	return reindex, true, nil
 }
 
-func (fdb *FluxDB) indexTablet(ctx context.Context, height uint64, tablet Tablet, skipFromCache bool, skipFromStore bool) (*TabletIndex, error) {
+func (fdb *FluxDB) indexTablet(ctx context.Context, height uint64, tablet Tablet, forceIndex bool, skipFromCache bool, skipFromStore bool) (index *TabletIndex, skipped bool, err error) {
 	tabletKey := KeyForTablet(tablet)
 
-	var index *TabletIndex
 	if !skipFromCache {
 		zlog.Debug("checking if index already exist in cache")
 		index = fdb.idxCache.GetIndex(tabletKey)
@@ -229,12 +240,21 @@ func (fdb *FluxDB) indexTablet(ctx context.Context, height uint64, tablet Tablet
 		var err error
 		index, err = fdb.fetchIndex(ctx, indexSinglet, height-1)
 		if err != nil {
-			return nil, fmt.Errorf("get index %s at height %d: %w", tablet, height, err)
+			return nil, false, fmt.Errorf("get index %s at height %d: %w", tablet, height, err)
 		}
 
 		if index != nil {
 			zlog.Debug("found tablet index in store", zap.Uint64("at_height", index.AtHeight))
 		}
+	}
+
+	// If we are not forcing indexing and a check to `shouldIndex` returns false, skip the indexing. This
+	// condition can happen on a service restart where the index cache is cleared. In this situation, you must
+	// wait until here to fetch the last index and check its row count to determine if an index should be created
+	// or not.
+	if !forceIndex && !fdb.idxCache.shouldIndex(tabletKey, index) {
+		zlog.Debug("determined that index should not be created, skipping indexing for tablet", zap.Stringer("tablet", tabletKey))
+		return index, true, nil
 	}
 
 	if index == nil {
@@ -253,7 +273,7 @@ func (fdb *FluxDB) indexTablet(ctx context.Context, height uint64, tablet Tablet
 	zlog.Debug("reading table rows for indexation", zap.Stringer("first_row_key", startKey), zap.Stringer("last_row_key", endKey))
 
 	count := 0
-	err := fdb.store.ScanTabletRows(ctx, startKey, endKey, func(key []byte, value []byte) error {
+	err = fdb.store.ScanTabletRows(ctx, startKey, endKey, func(key []byte, value []byte) error {
 		// We are really only interested by the row's key here, so we don't give it any value, just like if it would be a deleted row
 		row, err := NewTabletRow(tablet, key, nil)
 		if err != nil {
@@ -272,13 +292,13 @@ func (fdb *FluxDB) indexTablet(ctx context.Context, height uint64, tablet Tablet
 	})
 
 	if err != nil {
-		return nil, fmt.Errorf("read rows: %w", err)
+		return nil, false, fmt.Errorf("read rows: %w", err)
 	}
 
 	index.AtHeight = height
 	index.SquelchCount = uint64(count)
 
-	return index, nil
+	return index, false, nil
 }
 
 func (fdb *FluxDB) fetchIndex(ctx context.Context, singlet indexSinglet, height uint64) (*TabletIndex, error) {
@@ -505,22 +525,35 @@ func (t *indexCache) Reset() {
 
 // This algorithm determines the space between the indexes
 func (t *indexCache) shouldTriggerIndexing(key TabletKey) bool {
+	return t.shouldIndex(key, t.lastIndexes[string(key)])
+}
+
+func (t *indexCache) shouldIndex(key TabletKey, previousIndex *TabletIndex) bool {
 	mutatedRowsCount := t.lastCounters[string(key)]
-	if mutatedRowsCount < 1000 {
+
+	// If there is less than 25K mutations, wheter or not a previous index existed, we are not ready to index this tablet
+	if mutatedRowsCount < 25000 {
 		return false
 	}
 
-	lastIndex := t.lastIndexes[string(key)]
-	if lastIndex == nil {
+	// There is >= 25K mutations and there is no known previous index, we are ready to index this tablet
+	if previousIndex == nil {
 		return true
 	}
 
-	if lastIndex.RowCount() > 50000 && mutatedRowsCount < 5000 {
-		return false
-	}
+	// Special handling for big table, i.e. previous index had > 50K rows, to limit the number of index we create at the expense on longer read time
+	if previousIndex.RowCount() > 50000 {
+		// First, let's compute half of the row count, it will be necessarly > 25K rows here
+		halfRow := previousIndex.RowCount() / 2
+		switch {
+		// If the tablet has 200K rows or less (halfRow <= 100K) and there is >= Half Row mutations, we index
+		case halfRow <= 100000:
+			return mutatedRowsCount > int(halfRow)
 
-	if lastIndex.RowCount() > 100000 && mutatedRowsCount < 10000 {
-		return false
+		// If the tablet has > 200K rows, cap the mutations to 100K rows
+		default:
+			return mutatedRowsCount >= 100000
+		}
 	}
 
 	return true

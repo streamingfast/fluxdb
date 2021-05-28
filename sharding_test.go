@@ -79,7 +79,7 @@ func runTests(t *testing.T, scratchDirectory string) {
 
 	// Injection of each shard is done individually, each store pointing into the shard directory directly
 	var verifyErrors []error
-	var lastShardProgressStats *ShardProgressStats
+	var lastShardProgressStats *shardProgressStats
 	wroteFinalCheckpoint := false
 	for i := 0; i < shardCount; i++ {
 		db.shardIndex = i
