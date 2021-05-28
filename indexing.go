@@ -528,6 +528,21 @@ func (t *indexCache) shouldTriggerIndexing(key TabletKey) bool {
 	return t.shouldIndex(key, t.lastIndexes[string(key)])
 }
 
+// shouldIndex determines if the following tablet and its previous tablet index (could be nil)
+// should be indexed again.
+//
+// The algorithm is as follow:
+//  If there is less than 25K mutations, skip
+//  If there is greater or equal than 25K mutations =>
+//    If there is no previous index, index
+//    If there is a previous index =>
+//      If the previous index has less or equal than 50K rows, index
+//      If the previous index has more than 50K rows but less or equal than 200K rows =>
+//         If there is greater than "previous index row count / 2" mutations, index
+//         Otherwise, skip
+//      If the previous index has more than 200K rows =>
+//         If there is greater than 100K mutations, index
+//         Otherwise, skip
 func (t *indexCache) shouldIndex(key TabletKey, previousIndex *TabletIndex) bool {
 	mutatedRowsCount := t.lastCounters[string(key)]
 
