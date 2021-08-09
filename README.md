@@ -1,4 +1,6 @@
-## FluxDB
+# StreamingFast FluxDB
+[![reference](https://img.shields.io/badge/godoc-reference-5272B4.svg?style=flat-square)](https://pkg.go.dev/github.com/streamingfast/search)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 A temporal database framework for blockchain state.
 
@@ -39,20 +41,26 @@ a few thousand rows for example
 
 ### Usage
 
-This section is still a work in progress. The best way current way to learn about
-FluxDB usage is to inspect https://github.com/dfuse-io/dfuse-eosio/tree/develop/statedb
-and see how it uses this library to create dfuse EOSIO StateDB.
+See the different protocol-specific `StreamingFast` binaries at https://github.com/streamingfast/streamingfast#protocols
+
+Current `fluxdb` implementations:
+
+* [EOSIO on StreamingFast](https://github.com/streamingfast/sf-eosio)
+* [Ethereum on StreamingFast](https://github.com/streamingfast/sf-ethereum)
 
 ## Contributing
 
-Issues and PR in this repo related strictly to the EOSIO protobuf definitions.
+**Issues and PR in this repo related strictly to the core search engine.**
 
 Report any protocol-specific issues in their
-[respective repositories](https://github.com/dfuse-io/dfuse#protocols)
+[respective repositories](https://github.com/streamingfast/streamingfast#protocols)
 
-Please first refer to the general
-[dfuse contribution guide](https://github.com/dfuse-io/dfuse/blob/master/CONTRIBUTING.md),
+**Please first refer to the general
+[StreamingFast contribution guide](https://github.com/streamingfast/streamingfast/blob/master/CONTRIBUTING.md)**,
 if you wish to contribute to this code base.
+
+This codebase uses unit tests extensively, please write and run tests.
+
 
 ## License
 

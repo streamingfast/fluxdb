@@ -24,7 +24,7 @@ import (
 
 	"github.com/dfuse-io/bstream"
 	"github.com/dfuse-io/dtracing"
-	"github.com/dfuse-io/fluxdb/store"
+	"github.com/streamingfast/fluxdb/store"
 	"github.com/dfuse-io/logging"
 	pbfluxdb "github.com/dfuse-io/pbgo/dfuse/fluxdb/v1"
 	"github.com/golang/protobuf/proto"

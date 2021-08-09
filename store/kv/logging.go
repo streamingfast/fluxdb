@@ -22,5 +22,5 @@ import (
 var zlog = zap.NewNop()
 
 func init() {
-	logging.Register("github.com/dfuse-io/fluxdb/store/kv", &zlog)
+	logging.Register("github.com/streamingfast/fluxdb/store/kv", &zlog)
 }

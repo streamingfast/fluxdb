@@ -19,7 +19,7 @@ import (
 	"fmt"
 
 	"github.com/dfuse-io/bstream"
-	"github.com/dfuse-io/fluxdb/store"
+	"github.com/streamingfast/fluxdb/store"
 	"github.com/dfuse-io/shutter"
 	"go.uber.org/zap"
 )

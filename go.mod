@@ -1,4 +1,4 @@
-module github.com/dfuse-io/fluxdb
+module github.com/streamingfast/fluxdb
 
 require (
 	github.com/Azure/azure-pipeline-go v0.2.2 // indirect

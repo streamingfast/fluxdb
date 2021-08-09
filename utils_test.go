@@ -21,7 +21,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/dfuse-io/fluxdb/store/kv"
+	"github.com/streamingfast/fluxdb/store/kv"
 	"github.com/dfuse-io/jsonpb"
 	_ "github.com/dfuse-io/kvdb/store/badger"
 	_ "github.com/dfuse-io/kvdb/store/bigkv"

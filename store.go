@@ -18,8 +18,8 @@ import (
 	"fmt"
 	"net/url"
 
-	"github.com/dfuse-io/fluxdb/store"
-	"github.com/dfuse-io/fluxdb/store/kv"
+	"github.com/streamingfast/fluxdb/store"
+	"github.com/streamingfast/fluxdb/store/kv"
 	"go.uber.org/zap"
 )
 

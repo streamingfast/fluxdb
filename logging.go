@@ -19,9 +19,9 @@ import (
 	"go.uber.org/zap"
 )
 
-var traceEnabled = logging.IsTraceEnabled("fluxdb", "github.com/dfuse-io/fluxdb")
+var traceEnabled = logging.IsTraceEnabled("fluxdb", "github.com/streamingfast/fluxdb")
 var zlog = zap.NewNop()
 
 func init() {
-	logging.Register("github.com/dfuse-io/fluxdb", &zlog)
+	logging.Register("github.com/streamingfast/fluxdb", &zlog)
 }
