@@ -11,7 +11,6 @@ require (
 	github.com/dfuse-io/dstore v0.1.1-0.20200819043022-7cdd92b6d8a9
 	github.com/dfuse-io/dtracing v0.0.0-20200417133307-c09302668d0c
 	github.com/dfuse-io/jsonpb v0.0.0-20200602171045-28535c4016a2
-	github.com/dfuse-io/kvdb v0.0.2-0.20201013164626-89b668e6bd69
 	github.com/dfuse-io/logging v0.0.0-20201125153217-f29c382faa42
 	github.com/dfuse-io/pbgo v0.0.6-0.20200819050623-1bfd94a6868d
 	github.com/dfuse-io/shutter v1.4.1-0.20200407040739-f908f9ab727f
@@ -22,6 +21,7 @@ require (
 	github.com/minio/highwayhash v1.0.0
 	github.com/prometheus/client_golang v1.2.1 // indirect
 	github.com/prometheus/client_model v0.1.0 // indirect
+	github.com/streamingfast/kvdb v0.0.2-0.20210809203849-c1762028eb64
 	github.com/stretchr/testify v1.4.0
 	go.opencensus.io v0.22.3
 	go.uber.org/multierr v1.5.0

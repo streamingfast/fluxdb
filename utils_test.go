@@ -21,12 +21,12 @@ import (
 	"os"
 	"testing"
 
-	"github.com/streamingfast/fluxdb/store/kv"
 	"github.com/dfuse-io/jsonpb"
-	_ "github.com/dfuse-io/kvdb/store/badger"
-	_ "github.com/dfuse-io/kvdb/store/bigkv"
 	pbfluxdb "github.com/dfuse-io/pbgo/dfuse/fluxdb/v1"
 	"github.com/golang/protobuf/proto"
+	"github.com/streamingfast/fluxdb/store/kv"
+	_ "github.com/streamingfast/kvdb/store/badger"
+	_ "github.com/streamingfast/kvdb/store/bigkv"
 	"github.com/stretchr/testify/require"
 )
 

@@ -21,9 +21,9 @@ import (
 	"io"
 
 	"github.com/dfuse-io/dtracing"
-	"github.com/streamingfast/fluxdb/store"
-	kv "github.com/dfuse-io/kvdb/store"
 	"github.com/dfuse-io/logging"
+	"github.com/streamingfast/fluxdb/store"
+	kv "github.com/streamingfast/kvdb/store"
 	"go.uber.org/zap"
 )
 
