@@ -22,7 +22,7 @@ import (
 	"strings"
 
 	"github.com/streamingfast/dbin"
-	"github.com/dfuse-io/dstore"
+	"github.com/streamingfast/dstore"
 	pbfluxdb "github.com/dfuse-io/pbgo/dfuse/fluxdb/v1"
 	"github.com/dfuse-io/shutter"
 	"github.com/golang/protobuf/proto"
