@@ -26,7 +26,7 @@ import (
 	"github.com/abourget/llerrgroup"
 	"github.com/dfuse-io/bstream"
 	"github.com/dfuse-io/bstream/forkable"
-	"github.com/dfuse-io/dbin"
+	"github.com/streamingfast/dbin"
 	"github.com/dfuse-io/dstore"
 	"github.com/golang/protobuf/proto"
 	"github.com/minio/highwayhash"

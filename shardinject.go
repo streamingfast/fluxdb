@@ -21,7 +21,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/dfuse-io/dbin"
+	"github.com/streamingfast/dbin"
 	"github.com/dfuse-io/dstore"
 	pbfluxdb "github.com/dfuse-io/pbgo/dfuse/fluxdb/v1"
 	"github.com/dfuse-io/shutter"
