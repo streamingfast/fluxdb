@@ -4,13 +4,14 @@ require (
 	github.com/Azure/azure-pipeline-go v0.2.2 // indirect
 	github.com/abourget/llerrgroup v0.2.0
 	github.com/cespare/xxhash/v2 v2.1.1 // indirect
-	github.com/dfuse-io/bstream v0.0.2-0.20200831174806-3a465dd49cb4
+	github.com/dfuse-io/bstream v0.0.2-0.20210810055526-1c2b722f0cf6
+	github.com/dfuse-io/dbin v0.0.0-20200406215642-ec7f22e794eb // indirect
 	github.com/dfuse-io/dmetrics v0.0.0-20200508170817-3b8cb01fee68
-	github.com/dfuse-io/dstore v0.1.1-0.20200819043022-7cdd92b6d8a9
+	github.com/dfuse-io/dstore v0.1.1-0.20210507180120-88a95674809f
 	github.com/dfuse-io/jsonpb v0.0.0-20200602171045-28535c4016a2
-	github.com/dfuse-io/logging v0.0.0-20201125153217-f29c382faa42
-	github.com/dfuse-io/pbgo v0.0.6-0.20200819050623-1bfd94a6868d
-	github.com/dfuse-io/shutter v1.4.1-0.20200407040739-f908f9ab727f
+	github.com/dfuse-io/logging v0.0.0-20210109005628-b97a57253f70
+	github.com/dfuse-io/pbgo v0.0.6-0.20210429181308-d54fc7723ad3
+	github.com/dfuse-io/shutter v1.4.1
 	github.com/golang/protobuf v1.4.2
 	github.com/gorilla/mux v1.7.3 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware v1.1.0 // indirect

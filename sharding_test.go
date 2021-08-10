@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io/ioutil"
+	"net/url"
 	"os"
 	"path"
 	"strings"
@@ -38,7 +39,10 @@ func runTests(t *testing.T, scratchDirectory string) {
 	storeDir, cleanup := createTempDir(t, shardsStore)
 	defer cleanup()
 
-	shardsStore, err := dstore.NewLocalStore(storeDir, "", "", true)
+	storeURL, err := url.Parse(storeDir)
+	require.NoError(t, err, "Invalid storeURL", storeDir)
+
+	shardsStore, err := dstore.NewLocalStore(storeURL, "", "", true)
 	require.NoError(t, err)
 
 	shardCount := 2
@@ -84,7 +88,10 @@ func runTests(t *testing.T, scratchDirectory string) {
 	for i := 0; i < shardCount; i++ {
 		db.shardIndex = i
 
-		specificShardStore, err := dstore.NewLocalStore(path.Join(storeDir, fmt.Sprintf("%03d", i)), "", "", false)
+		storeURL, err := url.Parse(path.Join(storeDir, fmt.Sprintf("%03d", i)))
+		require.NoError(t, err, "Invalid storeURL")
+
+		specificShardStore, err := dstore.NewLocalStore(storeURL, "", "", false)
 		require.NoError(t, err)
 
 		injector := NewShardInjector(specificShardStore, db)
