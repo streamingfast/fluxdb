@@ -8,7 +8,6 @@ require (
 	github.com/dfuse-io/dbin v0.0.0-20200406215642-ec7f22e794eb
 	github.com/dfuse-io/dmetrics v0.0.0-20200508170817-3b8cb01fee68
 	github.com/dfuse-io/dstore v0.1.1-0.20200819043022-7cdd92b6d8a9
-	github.com/dfuse-io/dtracing v0.0.0-20200417133307-c09302668d0c
 	github.com/dfuse-io/jsonpb v0.0.0-20200602171045-28535c4016a2
 	github.com/dfuse-io/logging v0.0.0-20201125153217-f29c382faa42
 	github.com/dfuse-io/pbgo v0.0.6-0.20200819050623-1bfd94a6868d
@@ -21,6 +20,7 @@ require (
 	github.com/prometheus/client_golang v1.2.1 // indirect
 	github.com/prometheus/client_model v0.1.0 // indirect
 	github.com/streamingfast/derr v0.0.0-20210810022442-32249850a4fb
+	github.com/streamingfast/dtracing v0.0.0-20210810040633-7c6259bea4a7
 	github.com/streamingfast/kvdb v0.0.2-0.20210809203849-c1762028eb64
 	github.com/stretchr/testify v1.4.0
 	go.opencensus.io v0.22.3

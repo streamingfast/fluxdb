@@ -128,8 +128,6 @@ github.com/dfuse-io/dstore v0.1.1-0.20200819043022-7cdd92b6d8a9 h1:nJFxXKBuZv8BB
 github.com/dfuse-io/dstore v0.1.1-0.20200819043022-7cdd92b6d8a9/go.mod h1:1dqWgmsMTFiBTsMw/7FM7AEBZiJm0/3f78EIR58MajI=
 github.com/dfuse-io/dtracing v0.0.0-20200406213603-4b0c0063b125 h1:XvwJj/xDY0TQV1y1MvMBINLK/4RGrhuc2HmHscnRgdM=
 github.com/dfuse-io/dtracing v0.0.0-20200406213603-4b0c0063b125/go.mod h1:SA/v5q2RIuah2W5uvVldEUwfFprEhGiw66Id0j68rtw=
-github.com/dfuse-io/dtracing v0.0.0-20200417133307-c09302668d0c h1:G/qxKHQXz8OGYuyB5fpkLybwlzDRoOFOHfpQehyxNUw=
-github.com/dfuse-io/dtracing v0.0.0-20200417133307-c09302668d0c/go.mod h1:SA/v5q2RIuah2W5uvVldEUwfFprEhGiw66Id0j68rtw=
 github.com/dfuse-io/jsonpb v0.0.0-20200602171045-28535c4016a2 h1:JtVhKOlyAwW08wFvMPMqZSygbG5Be+RMYNhRo9Fy92U=
 github.com/dfuse-io/jsonpb v0.0.0-20200602171045-28535c4016a2/go.mod h1:FMug2qe6PdGRIn9e2N1ucA+Rg0FOJOgyf2F0gJJSiSw=
 github.com/dfuse-io/logging v0.0.0-20200406213449-45fc25dc6a8d h1:2To2h29weJvChciTMa3/2Pb4ezXR8KbpRamU3Gw+A7E=
@@ -394,6 +392,16 @@ github.com/streamingfast/derr v0.0.0-20200730183817-a747f6f333ad h1:N5xEdxPmJJMN
 github.com/streamingfast/derr v0.0.0-20200730183817-a747f6f333ad/go.mod h1:/DjjRCyTi/KIiI1E1hnhvfWwg+K06jo+qM4VcjHvHq4=
 github.com/streamingfast/derr v0.0.0-20210810022442-32249850a4fb h1:aZzRC5HbJpQZICZnQDWCZxcbeHYZ8vWGv5yLmWvtaW8=
 github.com/streamingfast/derr v0.0.0-20210810022442-32249850a4fb/go.mod h1:zL7vriSdKmvbNntPVlXzPDizifaTwUv6+1TGp6KdO88=
+github.com/streamingfast/dtracing v0.0.0-20200406213603-4b0c0063b125 h1:XvwJj/xDY0TQV1y1MvMBINLK/4RGrhuc2HmHscnRgdM=
+github.com/streamingfast/dtracing v0.0.0-20200406213603-4b0c0063b125 h1:XvwJj/xDY0TQV1y1MvMBINLK/4RGrhuc2HmHscnRgdM=
+github.com/streamingfast/dtracing v0.0.0-20200406213603-4b0c0063b125/go.mod h1:SA/v5q2RIuah2W5uvVldEUwfFprEhGiw66Id0j68rtw=
+github.com/streamingfast/dtracing v0.0.0-20200406213603-4b0c0063b125/go.mod h1:SA/v5q2RIuah2W5uvVldEUwfFprEhGiw66Id0j68rtw=
+github.com/streamingfast/dtracing v0.0.0-20200417133307-c09302668d0c h1:G/qxKHQXz8OGYuyB5fpkLybwlzDRoOFOHfpQehyxNUw=
+github.com/streamingfast/dtracing v0.0.0-20200417133307-c09302668d0c/go.mod h1:SA/v5q2RIuah2W5uvVldEUwfFprEhGiw66Id0j68rtw=
+github.com/streamingfast/dtracing v0.0.0-20210810035915-473055fed32a h1:f2z0hl0EzhIkzErTPGf6ntF1kdOUZTWAz/DajsTgu9s=
+github.com/streamingfast/dtracing v0.0.0-20210810035915-473055fed32a/go.mod h1:z8WI8Y2sVfFZQQewUC40hE3TgISt3K4n5RwKzXG65Pg=
+github.com/streamingfast/dtracing v0.0.0-20210810040633-7c6259bea4a7 h1:QTexpFX7NUpLdS3+qAWQGajnKt6nFcbGlvKGjk961wU=
+github.com/streamingfast/dtracing v0.0.0-20210810040633-7c6259bea4a7/go.mod h1:z8WI8Y2sVfFZQQewUC40hE3TgISt3K4n5RwKzXG65Pg=
 github.com/streamingfast/kvdb v0.0.0-20200619171121-937464bfbae5 h1:MxqkibrzhcNJbq3C7/NCnk9kZwgeEiyDjnbUEk4F7EU=
 github.com/streamingfast/kvdb v0.0.0-20200619171121-937464bfbae5/go.mod h1:0fof33gPhbtGXKNYHZCYxKBWD+aogZreeWisJ5t5buE=
 github.com/streamingfast/kvdb v0.0.2-0.20200710185837-6525655ea360 h1:gBitu/N6GAQqMsBnENYOHwbhQvoy2wEPMccgj8D2OZI=

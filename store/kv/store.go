@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/dfuse-io/dtracing"
+	"github.com/streamingfast/dtracing"
 	"github.com/dfuse-io/logging"
 	"github.com/streamingfast/fluxdb/store"
 	kv "github.com/streamingfast/kvdb/store"

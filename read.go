@@ -23,7 +23,7 @@ import (
 	"sort"
 
 	"github.com/dfuse-io/bstream"
-	"github.com/dfuse-io/dtracing"
+	"github.com/streamingfast/dtracing"
 	"github.com/streamingfast/fluxdb/store"
 	"github.com/dfuse-io/logging"
 	pbfluxdb "github.com/dfuse-io/pbgo/dfuse/fluxdb/v1"
