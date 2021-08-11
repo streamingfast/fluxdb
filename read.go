@@ -22,7 +22,7 @@ import (
 	"math"
 	"sort"
 
-	"github.com/dfuse-io/bstream"
+	"github.com/streamingfast/bstream"
 	"github.com/streamingfast/dtracing"
 	"github.com/streamingfast/fluxdb/store"
 	"github.com/dfuse-io/logging"

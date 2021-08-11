@@ -24,8 +24,8 @@ import (
 	"time"
 
 	"github.com/abourget/llerrgroup"
-	"github.com/dfuse-io/bstream"
-	"github.com/dfuse-io/bstream/forkable"
+	"github.com/streamingfast/bstream"
+	"github.com/streamingfast/bstream/forkable"
 	"github.com/streamingfast/dbin"
 	"github.com/streamingfast/dstore"
 	"github.com/golang/protobuf/proto"

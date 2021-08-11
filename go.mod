@@ -4,7 +4,6 @@ require (
 	github.com/Azure/azure-pipeline-go v0.2.2 // indirect
 	github.com/abourget/llerrgroup v0.2.0
 	github.com/cespare/xxhash/v2 v2.1.1 // indirect
-	github.com/dfuse-io/bstream v0.0.2-0.20210811160908-fc6cb0861d48
 	github.com/dfuse-io/dgrpc v0.0.0-20210810125735-867cc255530c // indirect
 	github.com/dfuse-io/logging v0.0.0-20210109005628-b97a57253f70
 	github.com/golang/protobuf v1.4.2
@@ -15,6 +14,7 @@ require (
 	github.com/prometheus/client_golang v1.2.1 // indirect
 	github.com/prometheus/client_model v0.1.0 // indirect
 	github.com/streamingfast/blockmeta v0.0.2-0.20210810190006-1daeff8bc987 // indirect
+	github.com/streamingfast/bstream v0.0.2-0.20210811172811-82db64e6763f // indirect
 	github.com/streamingfast/dbin v0.0.0-20210809205249-73d5eca35dc5
 	github.com/streamingfast/derr v0.0.0-20210810022442-32249850a4fb
 	github.com/streamingfast/dgrpc v0.0.0-20210811160823-a39dfa7fff0d // indirect

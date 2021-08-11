@@ -18,7 +18,7 @@ import (
 	"encoding/hex"
 	"fmt"
 
-	"github.com/dfuse-io/bstream"
+	"github.com/streamingfast/bstream"
 	pbbstream "github.com/streamingfast/pbgo/dfuse/bstream/v1"
 	pbfluxdb "github.com/streamingfast/pbgo/dfuse/fluxdb/v1"
 )
