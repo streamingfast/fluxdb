@@ -6,7 +6,6 @@ require (
 	github.com/cespare/xxhash/v2 v2.1.1 // indirect
 	github.com/dfuse-io/bstream v0.0.2-0.20210810193659-788cf4d32e16
 	github.com/dfuse-io/dgrpc v0.0.0-20210810125735-867cc255530c // indirect
-	github.com/dfuse-io/jsonpb v0.0.0-20200602171045-28535c4016a2
 	github.com/dfuse-io/logging v0.0.0-20210109005628-b97a57253f70
 	github.com/dfuse-io/pbgo v0.0.6-0.20210429181308-d54fc7723ad3
 	github.com/golang/protobuf v1.4.2
@@ -21,6 +20,7 @@ require (
 	github.com/streamingfast/dmetrics v0.0.0-20210810172555-564d623b116f
 	github.com/streamingfast/dstore v0.1.1-0.20210810110932-928f221474e4
 	github.com/streamingfast/dtracing v0.0.0-20210810040633-7c6259bea4a7
+	github.com/streamingfast/jsonpb v0.0.0-20210811021341-3670f0aa02d0 // indirect
 	github.com/streamingfast/kvdb v0.0.2-0.20210809203849-c1762028eb64
 	github.com/streamingfast/shutter v1.5.0
 	github.com/stretchr/testify v1.7.0

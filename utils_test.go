@@ -21,7 +21,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/dfuse-io/jsonpb"
+	"github.com/streamingfast/jsonpb"
 	pbfluxdb "github.com/dfuse-io/pbgo/dfuse/fluxdb/v1"
 	"github.com/golang/protobuf/proto"
 	"github.com/streamingfast/fluxdb/store/kv"
