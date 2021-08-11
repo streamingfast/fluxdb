@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"math"
 
-	pbfluxdb "github.com/dfuse-io/pbgo/dfuse/fluxdb/v1"
+	pbfluxdb "github.com/streamingfast/pbgo/dfuse/fluxdb/v1"
 	"github.com/golang/protobuf/proto"
 )
 

@@ -19,8 +19,8 @@ import (
 	"fmt"
 
 	"github.com/dfuse-io/bstream"
-	pbbstream "github.com/dfuse-io/pbgo/dfuse/bstream/v1"
-	pbfluxdb "github.com/dfuse-io/pbgo/dfuse/fluxdb/v1"
+	pbbstream "github.com/streamingfast/pbgo/dfuse/bstream/v1"
+	pbfluxdb "github.com/streamingfast/pbgo/dfuse/fluxdb/v1"
 )
 
 const collectionBytes = 2

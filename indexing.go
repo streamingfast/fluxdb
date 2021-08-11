@@ -24,7 +24,7 @@ import (
 	"github.com/streamingfast/dtracing"
 	"github.com/streamingfast/fluxdb/store"
 	"github.com/dfuse-io/logging"
-	pbfluxdb "github.com/dfuse-io/pbgo/dfuse/fluxdb/v1"
+	pbfluxdb "github.com/streamingfast/pbgo/dfuse/fluxdb/v1"
 	"github.com/golang/protobuf/proto"
 	"go.uber.org/zap"
 )
