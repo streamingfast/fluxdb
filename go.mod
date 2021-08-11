@@ -4,31 +4,37 @@ require (
 	github.com/Azure/azure-pipeline-go v0.2.2 // indirect
 	github.com/abourget/llerrgroup v0.2.0
 	github.com/cespare/xxhash/v2 v2.1.1 // indirect
+	github.com/dfuse-io/bstream v0.0.2-0.20210810184055-243c376da8d5 // indirect
+	github.com/dfuse-io/dbin v0.0.0-20200406215642-ec7f22e794eb // indirect
 	github.com/dfuse-io/dgrpc v0.0.0-20210810125735-867cc255530c // indirect
-	github.com/dfuse-io/logging v0.0.0-20210109005628-b97a57253f70
-	github.com/golang/protobuf v1.4.2
+	github.com/dfuse-io/dhammer v0.0.0-20201127174908-667b90585063 // indirect
+	github.com/dfuse-io/dstore v0.1.0 // indirect
+	github.com/dfuse-io/jsonpb v0.0.0-20200406211248-c5cf83f0e0c0 // indirect
+	github.com/dfuse-io/opaque v0.0.0-20210108174126-bc02ec905d48 // indirect
+	github.com/golang/protobuf v1.5.2
+	github.com/golang/snappy v0.0.4 // indirect
 	github.com/gorilla/mux v1.7.3 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware v1.1.0 // indirect
 	github.com/kr/pretty v0.2.0 // indirect
 	github.com/minio/highwayhash v1.0.0
-	github.com/prometheus/client_golang v1.2.1 // indirect
-	github.com/prometheus/client_model v0.1.0 // indirect
-	github.com/streamingfast/blockmeta v0.0.2-0.20210810190006-1daeff8bc987 // indirect
-	github.com/streamingfast/bstream v0.0.2-0.20210811172811-82db64e6763f // indirect
+	github.com/rs/xid v1.2.1 // indirect
+	github.com/streamingfast/blockmeta v0.0.2-0.20210811194956-90dc4202afda // indirect
+	github.com/streamingfast/bstream v0.0.2-0.20210811181043-4c1920a7e3e3 // indirect
 	github.com/streamingfast/dbin v0.0.0-20210809205249-73d5eca35dc5
-	github.com/streamingfast/derr v0.0.0-20210810022442-32249850a4fb
-	github.com/streamingfast/dgrpc v0.0.0-20210811160823-a39dfa7fff0d // indirect
-	github.com/streamingfast/dmetrics v0.0.0-20210810172555-564d623b116f
-	github.com/streamingfast/dstore v0.1.1-0.20210810110932-928f221474e4
-	github.com/streamingfast/dtracing v0.0.0-20210810040633-7c6259bea4a7
+	github.com/streamingfast/derr v0.0.0-20210811180100-9138d738bcec
+	github.com/streamingfast/dgrpc v0.0.0-20210811180351-8646818518b2 // indirect
+	github.com/streamingfast/dmetrics v0.0.0-20210811180524-8494aeb34447
+	github.com/streamingfast/dstore v0.1.1-0.20210811180812-4db13e99cc22
+	github.com/streamingfast/dtracing v0.0.0-20210811175635-d55665d3622a
 	github.com/streamingfast/jsonpb v0.0.0-20210811021341-3670f0aa02d0 // indirect
-	github.com/streamingfast/kvdb v0.0.2-0.20210809203849-c1762028eb64
+	github.com/streamingfast/kvdb v0.0.2-0.20210811194032-09bf862bd2e3
+	github.com/streamingfast/logging v0.0.0-20210811175431-f3b44b61606a // indirect
 	github.com/streamingfast/pbgo v0.0.6-0.20210811160400-7c146c2db8cc // indirect
 	github.com/streamingfast/shutter v1.5.0
 	github.com/stretchr/testify v1.7.0
-	go.opencensus.io v0.22.3
+	github.com/tidwall/gjson v1.5.0 // indirect
+	go.opencensus.io v0.23.0
 	go.uber.org/zap v1.15.0
-	gopkg.in/yaml.v2 v2.2.8 // indirect
 )
 
 go 1.13
