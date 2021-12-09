@@ -232,7 +232,7 @@ func (p *FluxDBHandler) FetchSpeculativeWrites(ctx context.Context, headBlockID 
 }
 
 func (p *FluxDBHandler) updateSpeculativeWrites(newHeadBlock bstream.BlockRef) {
-	blocks := p.serverForkDB.ReversibleSegment(newHeadBlock)
+	blocks, _ := p.serverForkDB.ReversibleSegment(newHeadBlock)
 	if len(blocks) == 0 {
 		return
 	}
@@ -272,12 +272,12 @@ func (p *FluxDBHandler) ProcessBlock(rawBlk *bstream.Block, rawObj interface{}) 
 		}
 
 		previousRef := rawBlk.PreviousRef()
-		p.serverForkDB.AddLink(blkRef, rawBlk.PreviousRef(), fObj.Obj.(*WriteRequest))
+		p.serverForkDB.AddLink(blkRef, rawBlk.PreviousRef().ID(), fObj.Obj.(*WriteRequest))
 
 		// When we starting, if fluxdb internal forkdb has no LIB and we are seeing the first block, let's use it as the LIB
 		if !p.serverForkDB.HasLIB() && rawBlk.Num() == bstream.GetProtocolFirstStreamableBlock {
 			zlog.Info("setting internal forkdb LIB to first streamable block")
-			p.serverForkDB.TrySetLIB(rawBlk, previousRef, rawBlk.Num())
+			p.serverForkDB.TrySetLIB(rawBlk, previousRef.ID(), rawBlk.Num())
 		}
 
 		p.updateSpeculativeWrites(rawBlk)
