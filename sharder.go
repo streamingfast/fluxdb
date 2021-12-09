@@ -24,13 +24,13 @@ import (
 	"time"
 
 	"github.com/abourget/llerrgroup"
+	"github.com/minio/highwayhash"
 	"github.com/streamingfast/bstream"
 	"github.com/streamingfast/bstream/forkable"
 	"github.com/streamingfast/dbin"
 	"github.com/streamingfast/dstore"
-	"github.com/golang/protobuf/proto"
-	"github.com/minio/highwayhash"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/proto"
 )
 
 const shardBinaryContentType = "fwr"

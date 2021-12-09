@@ -26,7 +26,7 @@ import (
 	"github.com/streamingfast/bstream/forkable"
 	"github.com/streamingfast/dstore"
 	"github.com/streamingfast/fluxdb/metrics"
-	pbblockmeta "github.com/streamingfast/pbgo/dfuse/blockmeta/v1"
+	pbblockmeta "github.com/streamingfast/pbgo/sf/blockmeta/v1"
 	"go.uber.org/zap"
 )
 

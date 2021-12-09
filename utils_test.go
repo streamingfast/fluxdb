@@ -21,13 +21,13 @@ import (
 	"os"
 	"testing"
 
-	"github.com/streamingfast/jsonpb"
-	pbfluxdb "github.com/streamingfast/pbgo/dfuse/fluxdb/v1"
-	"github.com/golang/protobuf/proto"
 	"github.com/streamingfast/fluxdb/store/kv"
+	"github.com/streamingfast/jsonpb"
 	_ "github.com/streamingfast/kvdb/store/badger"
 	_ "github.com/streamingfast/kvdb/store/bigkv"
+	pbfluxdb "github.com/streamingfast/pbgo/sf/fluxdb/v1"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 func NewTestDB(t *testing.T) (*FluxDB, func()) {

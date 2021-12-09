@@ -24,9 +24,9 @@ import (
 	"github.com/streamingfast/dtracing"
 	"github.com/streamingfast/fluxdb/store"
 	"github.com/streamingfast/logging"
-	pbfluxdb "github.com/streamingfast/pbgo/dfuse/fluxdb/v1"
-	"github.com/golang/protobuf/proto"
+	pbfluxdb "github.com/streamingfast/pbgo/sf/fluxdb/v1"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/proto"
 )
 
 func (fdb *FluxDB) IndexTables(ctx context.Context) error {

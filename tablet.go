@@ -20,8 +20,8 @@ import (
 	"fmt"
 	"math"
 
-	pbfluxdb "github.com/streamingfast/pbgo/dfuse/fluxdb/v1"
-	"github.com/golang/protobuf/proto"
+	pbfluxdb "github.com/streamingfast/pbgo/sf/fluxdb/v1"
+	"google.golang.org/protobuf/proto"
 )
 
 // TabletFactory accepts a tablet identifier bytes and convert it into a valid Tablet
