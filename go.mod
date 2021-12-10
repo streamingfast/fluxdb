@@ -9,7 +9,7 @@ require (
 	github.com/grpc-ecosystem/go-grpc-middleware v1.1.0 // indirect
 	github.com/minio/highwayhash v1.0.0
 	github.com/streamingfast/atm v0.0.0-20211005171144-f2f3bbfda2f6 // indirect
-	github.com/streamingfast/bstream v0.0.2-0.20211209202442-73053c07cf54 // indirect
+	github.com/streamingfast/bstream v0.0.2-0.20211209212822-3666e8806588 // indirect
 	github.com/streamingfast/dbin v0.0.0-20210809205249-73d5eca35dc5
 	github.com/streamingfast/derr v0.0.0-20210811180100-9138d738bcec
 	github.com/streamingfast/dgrpc v0.0.0-20210901144702-c57c3701768b // indirect
