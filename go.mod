@@ -8,8 +8,7 @@ require (
 	github.com/gorilla/mux v1.7.3 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware v1.1.0 // indirect
 	github.com/minio/highwayhash v1.0.0
-	github.com/streamingfast/atm v0.0.0-20211005171144-f2f3bbfda2f6 // indirect
-	github.com/streamingfast/bstream v0.0.2-0.20211209212822-3666e8806588 // indirect
+	github.com/streamingfast/bstream v0.0.2-0.20220126191407-d0383f1d0059 // indirect
 	github.com/streamingfast/dbin v0.0.0-20210809205249-73d5eca35dc5
 	github.com/streamingfast/derr v0.0.0-20210811180100-9138d738bcec
 	github.com/streamingfast/dgrpc v0.0.0-20210901144702-c57c3701768b // indirect
@@ -21,7 +20,7 @@ require (
 	github.com/streamingfast/kvdb v0.0.2-0.20210811194032-09bf862bd2e3
 	github.com/streamingfast/logging v0.0.0-20210908162127-bdc5856d5341
 	github.com/streamingfast/opaque v0.0.0-20210811180740-0c01d37ea308 // indirect
-	github.com/streamingfast/pbgo v0.0.6-0.20211209212750-753f0acb6553
+	github.com/streamingfast/pbgo v0.0.6-0.20220104194237-6534a2f6320b
 	github.com/streamingfast/shutter v1.5.0
 	github.com/stretchr/testify v1.7.0
 	go.opencensus.io v0.23.0

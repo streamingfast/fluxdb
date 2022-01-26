@@ -51,7 +51,7 @@ func BuildReprocessingPipeline(
 
 	gate := bstream.NewBlockNumGate(startHeight, bstream.GateInclusive, handler, bstream.GateOptionWithLogger(zlog))
 
-	forkableOptions := []forkable.Option{forkable.WithLogger(zlog), forkable.WithFilters(forkable.StepIrreversible)}
+	forkableOptions := []forkable.Option{forkable.WithLogger(zlog), forkable.WithFilters(bstream.StepIrreversible)}
 	if previousIrreversibleID != "" {
 		irrRef := bstream.NewBlockRef(previousIrreversibleID, resolvedStartBlock)
 		zlog.Info("configuring inclusive LIB on forkable handler", zap.Stringer("irr_ref", irrRef))
@@ -108,7 +108,7 @@ func (fdb *FluxDB) BuildPipeline(
 	})
 
 	sf := bstream.SourceFromRefFactory(func(startBlock bstream.BlockRef, h bstream.Handler) bstream.Source {
-		forkableOptions := []forkable.Option{forkable.WithLogger(zlog), forkable.WithFilters(forkable.StepNew | forkable.StepIrreversible)}
+		forkableOptions := []forkable.Option{forkable.WithLogger(zlog), forkable.WithFilters(bstream.StepNew | bstream.StepIrreversible)}
 		if !bstream.EqualsBlockRefs(startBlock, bstream.BlockRefEmpty) {
 			// Only when we do **not** start from the beginning (i.e. startBlock is the empty block ref), that the
 			// forkable should be initialized with an initial LIB value. Otherwise, when we start fresh, the forkable
@@ -256,11 +256,11 @@ func (p *FluxDBHandler) ProcessBlock(rawBlk *bstream.Block, rawObj interface{}) 
 		zlog.Info("processing block (printed each 600 blocks)", zap.Stringer("block", blkRef))
 	}
 
-	// TODO: implement based on a Forkable object.. will be quite simpler
+	// TODO: move to bstream's interface that matches this, not the actual ForkableObject, when other step-related fields are exported
 	fObj := rawObj.(*forkable.ForkableObject)
 
-	switch fObj.Step {
-	case forkable.StepNew:
+	switch fObj.Step() {
+	case bstream.StepNew:
 
 		metrics.HeadBlockTimeDrift.SetBlockTime(rawBlk.Time())
 		metrics.HeadBlockNumber.SetUint64(rawBlk.Num())
@@ -282,7 +282,7 @@ func (p *FluxDBHandler) ProcessBlock(rawBlk *bstream.Block, rawObj interface{}) 
 
 		p.updateSpeculativeWrites(rawBlk)
 
-	case forkable.StepIrreversible:
+	case bstream.StepIrreversible:
 		if fObj.StepCount-1 != fObj.StepIndex { // last irreversible block in multi-block step
 			return nil
 		}
@@ -349,7 +349,7 @@ func (p *FluxDBHandler) ProcessBlock(rawBlk *bstream.Block, rawObj interface{}) 
 		}
 
 	default:
-		panic(fmt.Errorf("unsupported forkable step %q", fObj.Step))
+		panic(fmt.Errorf("unsupported forkable step %q", fObj.Step()))
 	}
 
 	return nil

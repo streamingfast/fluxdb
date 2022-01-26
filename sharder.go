@@ -26,7 +26,6 @@ import (
 	"github.com/abourget/llerrgroup"
 	"github.com/minio/highwayhash"
 	"github.com/streamingfast/bstream"
-	"github.com/streamingfast/bstream/forkable"
 	"github.com/streamingfast/dbin"
 	"github.com/streamingfast/dstore"
 	"go.uber.org/zap"
@@ -102,17 +101,16 @@ func NewSharder(shardsStore dstore.Store, scratchDirectory string, shardCount in
 	return s, nil
 }
 
-func (s *Sharder) ProcessBlock(rawBlk *bstream.Block, rawObj interface{}) error {
+func (s *Sharder) ProcessBlock(rawBlk *bstream.Block, obj interface{}) error {
 	if rawBlk.Num()%600 == 0 {
 		zlog.Info("processing block (printed each 600 blocks)", zap.Stringer("block", rawBlk))
 	}
 
-	fObj := rawObj.(*forkable.ForkableObject)
-	if fObj.Step != forkable.StepIrreversible {
+	if obj.(bstream.Stepable).Step() != bstream.StepIrreversible {
 		panic("unsupported, received step is not irreversible")
 	}
 
-	unshardedRequest := fObj.Obj.(*WriteRequest)
+	unshardedRequest := obj.(bstream.ObjectWrapper).WrappedObject().(*WriteRequest)
 	if unshardedRequest.Height > s.stopBlock {
 		err := s.writeShards()
 		if err != nil {

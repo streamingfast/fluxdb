@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/streamingfast/bstream"
-	"github.com/streamingfast/bstream/forkable"
 	"github.com/streamingfast/dstore"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -200,8 +199,20 @@ func bblock(id, libID string) *bstream.Block {
 	}
 }
 
-func fObj(request *WriteRequest) *forkable.ForkableObject {
-	return &forkable.ForkableObject{Step: forkable.StepIrreversible, Obj: request}
+type testForkableObject struct {
+	step bstream.StepType
+	obj  interface{}
+}
+
+func (t *testForkableObject) Step() bstream.StepType {
+	return t.step
+}
+func (t *testForkableObject) WrappedObject() interface{} {
+	return t.obj
+}
+
+func fObj(request *WriteRequest) *testForkableObject {
+	return &testForkableObject{step: bstream.StepIrreversible, obj: request}
 }
 
 func createTempDir(t *testing.T, input string) (string, func()) {
