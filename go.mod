@@ -8,7 +8,7 @@ require (
 	github.com/gorilla/mux v1.7.3 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware v1.1.0 // indirect
 	github.com/minio/highwayhash v1.0.0
-	github.com/streamingfast/bstream v0.0.2-0.20220126191407-d0383f1d0059 // indirect
+	github.com/streamingfast/bstream v0.0.2-0.20220209185510-8a3568f688ec // indirect
 	github.com/streamingfast/dbin v0.0.0-20210809205249-73d5eca35dc5
 	github.com/streamingfast/derr v0.0.0-20210811180100-9138d738bcec
 	github.com/streamingfast/dgrpc v0.0.0-20210901144702-c57c3701768b // indirect

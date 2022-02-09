@@ -233,6 +233,11 @@ func (p *FluxDBHandler) FetchSpeculativeWrites(ctx context.Context, headBlockID 
 
 func (p *FluxDBHandler) updateSpeculativeWrites(newHeadBlock bstream.BlockRef) {
 	blocks, _ := p.serverForkDB.ReversibleSegment(newHeadBlock)
+
+	if len(blocks) == 0 && newHeadBlock.Num() == bstream.GetProtocolFirstStreamableBlock && p.serverForkDB.Exists(newHeadBlock.ID()) {
+		blocks = append(blocks, p.serverForkDB.BlockForID(newHeadBlock.ID())) // first streamable block is the LIB, so never appears in ReversibleSegment
+	}
+
 	if len(blocks) == 0 {
 		return
 	}
