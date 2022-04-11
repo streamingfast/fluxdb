@@ -122,7 +122,7 @@ func (fdb *FluxDB) fetchAllShardProgressStats(ctx context.Context) (*shardProgre
 		if stats.ReferenceBlockRef == bstream.BlockRefEmpty {
 			stats.ReferenceBlockRef = block
 
-			if traceEnabled {
+			if tracer.Enabled() {
 				zlog.Debug("shard progression updating reference block", zap.Stringer("reference_block", stats.ReferenceBlockRef))
 			}
 		}
@@ -134,7 +134,7 @@ func (fdb *FluxDB) fetchAllShardProgressStats(ctx context.Context) (*shardProgre
 		return nil, err
 	}
 
-	if traceEnabled {
+	if tracer.Enabled() {
 		zlog.Debug("shard progression initial fetching done",
 			zap.Int("seen_count", len(seen)),
 			zap.Uint64("highest_height", stats.HighestHeight),
@@ -162,7 +162,7 @@ func (fdb *FluxDB) fetchAllShardProgressStats(ctx context.Context) (*shardProgre
 		}
 	}
 
-	if traceEnabled {
+	if tracer.Enabled() {
 		zlog.Debug("shard progression fetching done",
 			zap.Int("empty_shard_count", emptyBlockRefCount),
 			zap.Int("missing_shard_count", len(stats.MissingShards)),

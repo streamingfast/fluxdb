@@ -16,12 +16,6 @@ package fluxdb
 
 import (
 	"github.com/streamingfast/logging"
-	"go.uber.org/zap"
 )
 
-var traceEnabled = logging.IsTraceEnabled("fluxdb", "github.com/streamingfast/fluxdb")
-var zlog = zap.NewNop()
-
-func init() {
-	logging.Register("github.com/streamingfast/fluxdb", &zlog)
-}
+var zlog, tracer = logging.PackageLogger("fluxdb", "github.com/streamingfast/fluxdb")

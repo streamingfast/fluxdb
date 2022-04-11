@@ -10,7 +10,7 @@ import (
 var noError = ""
 
 func init() {
-	logging.TestingOverride()
+	logging.InstantiateLoggers()
 }
 
 func B(data string) []byte {

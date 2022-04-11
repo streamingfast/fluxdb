@@ -257,7 +257,7 @@ func (p *FluxDBHandler) updateSpeculativeWrites(newHeadBlock bstream.BlockRef) {
 
 func (p *FluxDBHandler) ProcessBlock(rawBlk *bstream.Block, rawObj interface{}) error {
 	blkRef := rawBlk.AsRef()
-	if rawBlk.Num()%600 == 0 || traceEnabled {
+	if rawBlk.Num()%600 == 0 || tracer.Enabled() {
 		zlog.Info("processing block (printed each 600 blocks)", zap.Stringer("block", blkRef))
 	}
 

@@ -106,7 +106,7 @@ func (fdb *FluxDB) ReindexTablets(ctx context.Context, height uint64, lowerBound
 	orderedIndexTablets := orderedIndexTabletKeys(indexKeysPerTablet)
 	zlog.Debug("re-indexing tablets", zap.Int("tablet_count", len(indexKeysPerTablet)), zap.Int("index_count", indexCount))
 	if dryRun {
-		if traceEnabled {
+		if tracer.Enabled() {
 			for _, tabletKey := range orderedIndexTablets {
 				for _, entry := range indexKeysPerTablet[tabletKey] {
 					zlog.Debug("would re-index tablet index", zap.Stringer("id", entry))
