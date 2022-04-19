@@ -16,11 +16,6 @@ package kv
 
 import (
 	"github.com/streamingfast/logging"
-	"go.uber.org/zap"
 )
 
-var zlog = zap.NewNop()
-
-func init() {
-	logging.Register("github.com/streamingfast/fluxdb/store/kv", &zlog)
-}
+var zlog, _ = logging.PackageLogger("fluxdb", "github.com/streamingfast/fluxdb/store/kv")

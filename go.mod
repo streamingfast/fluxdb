@@ -15,7 +15,7 @@ require (
 	github.com/streamingfast/dstore v0.1.1-0.20220203133825-30eb2f9c5cd3
 	github.com/streamingfast/dtracing v0.0.0-20220301163030-15ce3f71dd1c
 	github.com/streamingfast/jsonpb v0.0.0-20210811021341-3670f0aa02d0
-	github.com/streamingfast/kvdb v0.1.1-0.20220228165126-18278ca47f93
+	github.com/streamingfast/kvdb v0.1.1-0.20220419231706-35af97867ea4
 	github.com/streamingfast/logging v0.0.0-20220405224725-2755dab2ce75
 	github.com/streamingfast/pbgo v0.0.6-0.20220228185940-1bbaafec7d8a
 	github.com/streamingfast/shutter v1.5.0

@@ -452,6 +452,8 @@ github.com/streamingfast/jsonpb v0.0.0-20210811021341-3670f0aa02d0 h1:g8eEYbFSyk
 github.com/streamingfast/jsonpb v0.0.0-20210811021341-3670f0aa02d0/go.mod h1:cTNObq2Uofb330y05JbbZZ6RwE6QUXw5iVcHk1Fx3fk=
 github.com/streamingfast/kvdb v0.1.1-0.20220228165126-18278ca47f93 h1:dKzlqZEOPwGi70FhxSRSRxmigy2GPxqy5n6TnfmEgCI=
 github.com/streamingfast/kvdb v0.1.1-0.20220228165126-18278ca47f93/go.mod h1:SMxpWOYwdf8Ro3EJM8MY3JUUn4UWEUc9jCTL+qcwWIg=
+github.com/streamingfast/kvdb v0.1.1-0.20220419231706-35af97867ea4 h1:4DVwNe9JmnaC0XjEG6kHmylWb2UZYG4tUD05+Z7Afdk=
+github.com/streamingfast/kvdb v0.1.1-0.20220419231706-35af97867ea4/go.mod h1:jGkHiS1CAp9HYNrm8Uodklifb3c6hCOJ1VEMBzCiyWk=
 github.com/streamingfast/logging v0.0.0-20210811175431-f3b44b61606a/go.mod h1:4GdqELhZOXj4xwc4IaBmzofzdErGynnaSzuzxy0ZIBo=
 github.com/streamingfast/logging v0.0.0-20210908162127-bdc5856d5341/go.mod h1:4GdqELhZOXj4xwc4IaBmzofzdErGynnaSzuzxy0ZIBo=
 github.com/streamingfast/logging v0.0.0-20220222131651-12c3943aac2e h1:vQphQ4CW7nfw/RMsK0fkqwJoetr6bBGMoQA1uhIJp8Y=
