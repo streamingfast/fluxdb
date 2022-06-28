@@ -36,8 +36,24 @@ type FluxDB struct {
 	ignoreIndexRangeStart uint64
 	ignoreIndexRangeStop  uint64
 
-	SpeculativeWritesFetcher func(ctx context.Context, headBlockID string, upToHeight uint64) (speculativeWrites []*WriteRequest)
-	HeadBlock                func(ctx context.Context) bstream.BlockRef
+	// Deprecated: Use SpeculativeWritesFetcherByNum(ctx, bstream.NewBlockRef(0, headBlock), upToHeight)
+	SpeculativeWritesFetcher      func(ctx context.Context, headBlock string, upToHeight uint64) (speculativeWrites []*WriteRequest)
+	SpeculativeWritesFetcherByNum func(ctx context.Context, upToHeight uint64) (speculativeWrites []*WriteRequest)
+	SpeculativeWritesFetcherByRef func(ctx context.Context, upToBlock bstream.BlockRef) (speculativeWrites []*WriteRequest)
+
+	HeadBlock func(ctx context.Context) bstream.BlockRef
+
+	// ReversibleBlock is a public function that will return the reference to a reversible
+	// block that matches the received hash.
+	//
+	// If the block is not found or there is no live pipeline configured internally,
+	// the returned value is `nil`, `nil`.
+	//
+	// If the block is found, the speculative write request for this block is returned as the
+	// second returned value.
+	//
+	// If block hash is found in our reversible segment, both returned value will be non `nil`.
+	ReversibleBlock func(ctx context.Context, hash string) (bstream.BlockRef, *WriteRequest)
 
 	shardIndex int
 	shardCount int
@@ -70,6 +86,10 @@ func (fdb *FluxDB) Launch(disablePipeline bool) {
 		zlog.Info("not using a pipeline, waiting forever (serve mode)")
 		fdb.SpeculativeWritesFetcher = func(ctx context.Context, headBlockID string, upToHeight uint64) (speculativeWrites []*WriteRequest) {
 			return nil
+		}
+
+		fdb.ReversibleBlock = func(ctx context.Context, hash string) (bstream.BlockRef, *WriteRequest) {
+			return nil, nil
 		}
 
 		fdb.HeadBlock = func(ctx context.Context) bstream.BlockRef {

@@ -76,10 +76,25 @@ func (s *KVStore) FetchSingletEntry(ctx context.Context, keyStart, keyEnd []byte
 	})
 
 	if err != nil && err != store.BreakScan {
-		return nil, nil, fmt.Errorf("unable to fetch single tablet row (range [%s, %s[): %w", Key(keyStart), Key(keyEnd), err)
+		return nil, nil, fmt.Errorf("unable to fetch singlet entry (range [%s, %s[): %w", Key(keyStart), Key(keyEnd), err)
 	}
 
 	return key, value, nil
+}
+
+func (s *KVStore) FetchSingletEntries(ctx context.Context, keyStart, keyEnd []byte) (keys [][]byte, values [][]byte, err error) {
+	err = s.scanRange(ctx, TblPrefixRows, keyStart, keyEnd, 1, func(rowKey []byte, rowValue []byte) error {
+		keys = append(keys, rowKey)
+		values = append(values, rowValue)
+
+		return nil
+	})
+
+	if err != nil && err != store.BreakScan {
+		return nil, nil, fmt.Errorf("unable to fetch singlet entries (range [%s, %s[): %w", Key(keyStart), Key(keyEnd), err)
+	}
+
+	return keys, values, nil
 }
 
 func (s *KVStore) HasTabletRow(ctx context.Context, keyStart, keyEnd []byte) (exists bool, err error) {

@@ -5,6 +5,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Removed
+
+* **Deprecation** The `FluxDB#SpeculativeWritesFetcher` method is deprecated, use `FluxDB#SpeculativeWritesFetcherByNum` instead.
+
+### Added
+
+- Added `FluxDB#ReadSingletEntries` to query the storage engine returning all entries for a precise singlet.
+
+- Added speculative writes fetching using a particular block hash.
+
+- Added support to fetch an existing block from internal ForkDB (reversible segment of the chain).
+
 ### Fixed
 
 - Fixed a bug when reading a single table row and it's present in the index, it was not picked up correctly.

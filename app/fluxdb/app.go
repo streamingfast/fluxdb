@@ -131,7 +131,11 @@ func (a *App) startStandard(blocksStore dstore.Store, kvStore store.KVStore) err
 	fluxDBHandler := fluxdb.NewHandler(db)
 
 	db.SpeculativeWritesFetcher = fluxDBHandler.FetchSpeculativeWrites
+	db.SpeculativeWritesFetcherByNum = fluxDBHandler.FetchSpeculativeWritesByNum
+	db.SpeculativeWritesFetcherByRef = fluxDBHandler.FetchSpeculativeWritesByRef
+
 	db.HeadBlock = fluxDBHandler.HeadBlock
+	db.ReversibleBlock = fluxDBHandler.ReversibleBlock
 
 	a.OnTerminating(func(_ error) {
 		db.Shutdown(nil)

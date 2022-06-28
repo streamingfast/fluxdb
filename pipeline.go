@@ -164,10 +164,11 @@ type FluxDBHandler struct {
 	writeEnabled                bool
 	writeOnEachIrreversibleStep bool
 	serverForkDB                *forkable.ForkDB
+	headBlock                   bstream.BlockRef
 
-	speculativeReadsLock sync.RWMutex
+	speculativeWritesLIB bstream.BlockRef
 	speculativeWrites    []*WriteRequest
-	headBlock            bstream.BlockRef
+	speculativeReadsLock sync.RWMutex
 
 	batchWrites       []*WriteRequest
 	batchOpen         time.Time
@@ -217,7 +218,21 @@ func (p *FluxDBHandler) HeadBlock(ctx context.Context) bstream.BlockRef {
 	return p.headBlock
 }
 
-func (p *FluxDBHandler) FetchSpeculativeWrites(ctx context.Context, headBlockID string, upToHeight uint64) (speculativeWrites []*WriteRequest) {
+func (p *FluxDBHandler) ReversibleBlock(ctx context.Context, hash string) (bstream.BlockRef, *WriteRequest) {
+	// ForkDB is already protected, no need to hold any lock here
+	blk := p.serverForkDB.BlockForID(hash)
+	if blk == nil {
+		return nil, nil
+	}
+
+	return blk.AsRef(), blk.Object.(*WriteRequest)
+}
+
+func (p *FluxDBHandler) FetchSpeculativeWrites(ctx context.Context, _ string, upToHeight uint64) (speculativeWrites []*WriteRequest) {
+	return p.FetchSpeculativeWritesByNum(ctx, upToHeight)
+}
+
+func (p *FluxDBHandler) FetchSpeculativeWritesByNum(ctx context.Context, upToHeight uint64) (speculativeWrites []*WriteRequest) {
 	p.speculativeReadsLock.RLock()
 	defer p.speculativeReadsLock.RUnlock()
 
@@ -231,28 +246,46 @@ func (p *FluxDBHandler) FetchSpeculativeWrites(ctx context.Context, headBlockID 
 	return
 }
 
-func (p *FluxDBHandler) updateSpeculativeWrites(newHeadBlock bstream.BlockRef) {
-	blocks, _ := p.serverForkDB.ReversibleSegment(newHeadBlock)
-
-	if len(blocks) == 0 && newHeadBlock.Num() == bstream.GetProtocolFirstStreamableBlock && p.serverForkDB.Exists(newHeadBlock.ID()) {
-		blocks = append(blocks, p.serverForkDB.BlockForID(newHeadBlock.ID())) // first streamable block is the LIB, so never appears in ReversibleSegment
-	}
-
-	if len(blocks) == 0 {
-		return
-	}
-
-	var newWrites []*WriteRequest
-	for _, blk := range blocks {
-		req := blk.Object.(*WriteRequest)
-		newWrites = append(newWrites, req)
-	}
-
+func (p *FluxDBHandler) FetchSpeculativeWritesByRef(ctx context.Context, upToBlock bstream.BlockRef) (speculativeWrites []*WriteRequest) {
 	p.speculativeReadsLock.RLock()
-	defer p.speculativeReadsLock.RUnlock()
+	lib := p.speculativeWritesLIB
+	p.speculativeReadsLock.RUnlock()
+
+	return p.reversibleWriteRequestsAt(lib, upToBlock)
+}
+
+func (p *FluxDBHandler) updateSpeculativeWrites(lib bstream.BlockRef, newHeadBlock bstream.BlockRef) {
+	newWrites := p.reversibleWriteRequestsAt(lib, newHeadBlock)
+
+	p.speculativeReadsLock.Lock()
+	defer p.speculativeReadsLock.Unlock()
 
 	p.speculativeWrites = newWrites
 	p.headBlock = newHeadBlock
+}
+
+func (p *FluxDBHandler) reversibleWriteRequestsAt(lib bstream.BlockRef, blockRef bstream.BlockRef) []*WriteRequest {
+	// If the requested block is below our LIB, than it means it's a non-speculative block and there is no write requests to process here
+	if lib != nil && blockRef.Num() > bstream.GetProtocolFirstStreamableBlock && blockRef.Num() < lib.Num() {
+		return nil
+	}
+
+	blocks, _ := p.serverForkDB.ReversibleSegment(blockRef)
+
+	if len(blocks) == 0 && blockRef.Num() == bstream.GetProtocolFirstStreamableBlock && p.serverForkDB.Exists(blockRef.ID()) {
+		blocks = append(blocks, p.serverForkDB.BlockForID(blockRef.ID())) // first streamable block is the LIB, so never appears in ReversibleSegment
+	}
+
+	if len(blocks) == 0 {
+		return nil
+	}
+
+	newWrites := make([]*WriteRequest, len(blocks))
+	for i, blk := range blocks {
+		newWrites[i] = blk.Object.(*WriteRequest)
+	}
+
+	return newWrites
 }
 
 func (p *FluxDBHandler) ProcessBlock(rawBlk *bstream.Block, rawObj interface{}) error {
@@ -277,15 +310,17 @@ func (p *FluxDBHandler) ProcessBlock(rawBlk *bstream.Block, rawObj interface{}) 
 		}
 
 		previousRef := rawBlk.PreviousRef()
-		p.serverForkDB.AddLink(blkRef, rawBlk.PreviousRef().ID(), fObj.Obj.(*WriteRequest))
+
+		p.serverForkDB.AddLink(blkRef, previousRef.ID(), fObj.Obj.(*WriteRequest))
 
 		// When we starting, if fluxdb internal forkdb has no LIB and we are seeing the first block, let's use it as the LIB
-		if !p.serverForkDB.HasLIB() && rawBlk.Num() == bstream.GetProtocolFirstStreamableBlock {
+		if rawBlk.Num() == bstream.GetProtocolFirstStreamableBlock && !p.serverForkDB.HasLIB() {
 			zlog.Info("setting internal forkdb LIB to first streamable block")
 			p.serverForkDB.TrySetLIB(rawBlk, previousRef.ID(), rawBlk.Num())
 		}
 
-		p.updateSpeculativeWrites(rawBlk)
+		lib := bstream.NewBlockRef(p.serverForkDB.LIBID(), p.serverForkDB.LIBNum())
+		p.updateSpeculativeWrites(lib, rawBlk.AsRef())
 
 	case bstream.StepIrreversible:
 		if fObj.StepCount-1 != fObj.StepIndex { // last irreversible block in multi-block step
