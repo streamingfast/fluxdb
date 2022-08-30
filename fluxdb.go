@@ -19,6 +19,7 @@ import (
 	"fmt"
 
 	"github.com/streamingfast/bstream"
+	"github.com/streamingfast/bstream/stream"
 	"github.com/streamingfast/fluxdb/store"
 	"github.com/streamingfast/shutter"
 	"go.uber.org/zap"
@@ -27,7 +28,7 @@ import (
 type FluxDB struct {
 	*shutter.Shutter
 	store       store.KVStore
-	source      bstream.Source
+	source      *stream.Stream
 	blockMapper BlockMapper
 	blockFilter func(blk *bstream.Block) error
 
@@ -73,15 +74,7 @@ func New(kvStore store.KVStore, blockFilter func(blk *bstream.Block) error, bloc
 	}
 }
 
-func (fdb *FluxDB) Launch(disablePipeline bool) {
-	fdb.OnTerminating(func(e error) {
-		if fdb.source != nil {
-			zlog.Info("shutting down fluxdb's source")
-			fdb.source.Shutdown(e)
-			zlog.Info("source shutdown")
-		}
-	})
-
+func (fdb *FluxDB) Launch(ctx context.Context, disablePipeline bool) {
 	if disablePipeline {
 		zlog.Info("not using a pipeline, waiting forever (serve mode)")
 		fdb.SpeculativeWritesFetcher = func(ctx context.Context, headBlockID string, upToHeight uint64) (speculativeWrites []*WriteRequest) {
@@ -108,10 +101,7 @@ func (fdb *FluxDB) Launch(disablePipeline bool) {
 	} else {
 		// running the pipeline, this call is blocking
 		zlog.Info("starting pipeline")
-		fdb.source.Run()
-		<-fdb.source.Terminating()
-
-		err := fdb.source.Err()
+		err := fdb.source.Run(ctx)
 
 		zlog.Info("fluxdb source shutdown", zap.Error(err))
 		fdb.Shutdown(err)

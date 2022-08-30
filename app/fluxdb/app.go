@@ -41,6 +41,7 @@ type Config struct {
 	EnableReprocSharderMode  bool   // Enables flux reproc shard mode, exclusive option, cannot be set if either server, injector or reproc-injector mode is set
 	EnableReprocInjectorMode bool   // Enables flux reproc injector mode, exclusive option, cannot be set if either server, injector or reproc-shard mode is set
 	BlockStoreURL            string // dbin blocks store
+	OneBlockStoreURL         string // dbin one block store
 
 	// Available for reproc mode only (either reproc shard or reproc injector)
 	ReprocShardStoreURL string
@@ -64,10 +65,10 @@ type Config struct {
 
 type Modules struct {
 	// Required dependencies
-	BlockMapper        fluxdb.BlockMapper
-	OnServerMode       func(db *fluxdb.FluxDB)
-	OnInjectMode       func(db *fluxdb.FluxDB)
-	StartBlockResolver bstream.StartBlockResolver
+	BlockMapper  fluxdb.BlockMapper
+	OnServerMode func(db *fluxdb.FluxDB)
+	OnInjectMode func(db *fluxdb.FluxDB)
+	//StartBlockResolver bstream.StartBlockResolver
 
 	// Optional dependencies
 	BlockFilter func(blk *bstream.Block) error
@@ -89,6 +90,11 @@ func New(config *Config, modules *Modules) *App {
 }
 
 func (a *App) Run() error {
+	ctx, cancel := context.WithCancel(context.Background())
+	a.OnTerminating(func(_ error) {
+		cancel()
+	})
+
 	dmetrics.Register(metrics.MetricSet)
 
 	zlog.Info("running fluxdb", zap.Reflect("config", a.config))
@@ -106,22 +112,29 @@ func (a *App) Run() error {
 		return fmt.Errorf("setting up source blocks store: %w", err)
 	}
 
+	oneBlockStore, err := dstore.NewDBinStore(a.config.OneBlockStoreURL)
+	if err != nil {
+		return fmt.Errorf("setting up source one block store: %w", err)
+	}
+
 	if a.config.EnableInjectMode || a.config.EnableServerMode {
-		return a.startStandard(blocksStore, kvStore)
+		return a.startStandard(ctx, blocksStore, oneBlockStore, kvStore)
 	}
 
 	if a.config.EnableReprocSharderMode {
-		return a.startReprocSharder(blocksStore)
+		return a.startReprocSharder(ctx, blocksStore)
 	}
 
 	if a.config.EnableReprocInjectorMode {
-		return a.startReprocInjector(kvStore)
+		return a.startReprocInjector(ctx, kvStore)
 	}
 
 	return errors.New("invalid configuration, don't know what to start for fluxdb")
 }
 
-func (a *App) startStandard(blocksStore dstore.Store, kvStore store.KVStore) error {
+func (a *App) startStandard(ctx context.Context, blocksStore dstore.Store, oneBlockStore dstore.Store, kvStore store.KVStore) error {
+	ctx, cancel := context.WithCancel(context.Background())
+
 	db := fluxdb.New(kvStore, a.modules.BlockFilter, a.modules.BlockMapper, a.config.DisableIndexing)
 	if a.config.IgnoreIndexRangeStart != 0 && a.config.IgnoreIndexRangeStop != 0 {
 		db.SetIgnoreIndexRange(a.config.IgnoreIndexRangeStart, a.config.IgnoreIndexRangeStop)
@@ -138,13 +151,17 @@ func (a *App) startStandard(blocksStore dstore.Store, kvStore store.KVStore) err
 	db.ReversibleBlock = fluxDBHandler.ReversibleBlock
 
 	a.OnTerminating(func(_ error) {
+		cancel()
 		db.Shutdown(nil)
 	})
 
 	db.OnTerminated(a.Shutdown)
 
 	if a.config.EnableInjectMode || !a.config.DisablePipeline {
-		db.BuildPipeline(a.modules.BlockMeta, fluxDBHandler.InitializeStartBlockID, fluxDBHandler, blocksStore, a.config.BlockStreamAddr)
+		err := db.BuildPipeline(ctx, fluxDBHandler.InitializeStartBlockID, fluxDBHandler, blocksStore, oneBlockStore, a.config.BlockStreamAddr)
+		if err != nil {
+			return fmt.Errorf("unable to build pipeline: %w", err)
+		}
 	}
 
 	if a.config.EnableInjectMode {
@@ -165,12 +182,17 @@ func (a *App) startStandard(blocksStore dstore.Store, kvStore store.KVStore) err
 		a.modules.OnInjectMode(db)
 	}
 
-	go db.Launch(a.config.DisablePipeline)
+	go db.Launch(ctx, a.config.DisablePipeline)
 
 	return nil
 }
 
-func (a *App) startReprocSharder(blocksStore dstore.Store) error {
+func (a *App) startReprocSharder(ctx context.Context, blocksStore dstore.Store) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	a.OnTerminating(func(_ error) {
+		cancel()
+	})
+
 	shardsStore, err := dstore.NewStore(a.config.ReprocShardStoreURL, "shard.zst", "zstd", true)
 	if err != nil {
 		return fmt.Errorf("unable to create shards store at %s: %w", a.config.ReprocShardStoreURL, err)
@@ -190,8 +212,6 @@ func (a *App) startReprocSharder(blocksStore dstore.Store) error {
 	source, err := fluxdb.BuildReprocessingPipeline(
 		a.modules.BlockFilter,
 		a.modules.BlockMapper,
-		a.modules.BlockMeta,
-		a.modules.StartBlockResolver,
 		shardingPipe,
 		blocksStore,
 		a.config.ReprocSharderStartBlockNum,
@@ -200,28 +220,16 @@ func (a *App) startReprocSharder(blocksStore dstore.Store) error {
 		return fmt.Errorf("reprocessing pipeline: %w", err)
 	}
 
-	a.OnTerminating(func(_ error) {
-		source.Shutdown(nil)
-	})
-
-	source.OnTerminated(func(err error) {
+	err = source.Run(ctx)
+	if err != nil {
 		// FIXME: This `HasSuffix` is sh**ty, need to replace with a better pattern, `source.Shutdown(nil)` is one of them
 		if err != nil && strings.HasSuffix(err.Error(), fluxdb.ErrCleanSourceStop.Error()) {
 			err = nil
 		}
-
-		a.Shutdown(err)
-	})
-
-	source.Run()
-
-	// Wait for either source to complete or the app being killed
-	select {
-	case <-a.Terminating():
-	case <-source.Terminated():
 	}
 
-	return nil
+	a.Shutdown(err)
+	return err
 }
 
 func appendPath(baseURL string, suffix string) (string, error) {
@@ -236,7 +244,7 @@ func appendPath(baseURL string, suffix string) (string, error) {
 	return storeURL.String(), nil
 }
 
-func (a *App) startReprocInjector(kvStore store.KVStore) error {
+func (a *App) startReprocInjector(ctx context.Context, kvStore store.KVStore) error {
 	db := fluxdb.New(kvStore, a.modules.BlockFilter, a.modules.BlockMapper, a.config.DisableIndexing)
 	if a.config.IgnoreIndexRangeStart != 0 && a.config.IgnoreIndexRangeStop != 0 {
 		db.SetIgnoreIndexRange(a.config.IgnoreIndexRangeStart, a.config.IgnoreIndexRangeStop)
@@ -275,7 +283,6 @@ func (a *App) startReprocInjector(kvStore store.KVStore) error {
 		return fmt.Errorf("injector failed: %w", err)
 	}
 
-	ctx := context.Background()
 	stats, err := db.VerifyAllShardsWritten(ctx)
 	if err != nil {
 		zlog.Info("all shards are not done yet, not updating last block", zap.Error(err))

@@ -24,9 +24,10 @@ import (
 	"github.com/streamingfast/bstream"
 	"github.com/streamingfast/bstream/blockstream"
 	"github.com/streamingfast/bstream/forkable"
+	"github.com/streamingfast/bstream/hub"
+	"github.com/streamingfast/bstream/stream"
 	"github.com/streamingfast/dstore"
 	"github.com/streamingfast/fluxdb/metrics"
-	pbblockmeta "github.com/streamingfast/pbgo/sf/blockmeta/v1"
 	"go.uber.org/zap"
 )
 
@@ -35,36 +36,10 @@ var ErrCleanSourceStop = errors.New("clean source stop")
 func BuildReprocessingPipeline(
 	blockFilter func(blk *bstream.Block) error,
 	blockMapper BlockMapper,
-	blockMeta pbblockmeta.BlockIDClient,
-	startBlockResolver bstream.StartBlockResolver,
 	handler bstream.Handler,
 	blocksStore dstore.Store,
-	startHeight uint64,
-) (bstream.Source, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
-	defer cancel()
-
-	resolvedStartBlock, previousIrreversibleID, err := startBlockResolver(ctx, startHeight)
-	if err != nil {
-		return nil, fmt.Errorf("start block resolver for block %d: %w", startHeight, err)
-	}
-
-	gate := bstream.NewBlockNumGate(startHeight, bstream.GateInclusive, handler, bstream.GateOptionWithLogger(zlog))
-
-	forkableOptions := []forkable.Option{forkable.WithLogger(zlog), forkable.WithFilters(bstream.StepIrreversible)}
-	if previousIrreversibleID != "" {
-		irrRef := bstream.NewBlockRef(previousIrreversibleID, resolvedStartBlock)
-		zlog.Info("configuring inclusive LIB on forkable handler", zap.Stringer("irr_ref", irrRef))
-		forkableOptions = append(forkableOptions, forkable.WithInclusiveLIB(irrRef))
-	}
-
-	if blockMeta != nil {
-		zlog.Info("configuring irreversibility checker on forkable handler")
-		forkableOptions = append(forkableOptions, forkable.WithIrreversibilityChecker(blockMeta, 1*time.Second))
-	}
-
-	forkableSource := forkable.New(gate, forkableOptions...)
-
+	startBlock uint64,
+) (*stream.Stream, error) {
 	fdbPreprocessor := NewPreprocessBlock(blockMapper)
 	filePreprocessor := bstream.PreprocessFunc(func(blk *bstream.Block) (interface{}, error) {
 		if blockFilter != nil {
@@ -77,25 +52,23 @@ func BuildReprocessingPipeline(
 		return fdbPreprocessor(blk)
 	})
 
-	return bstream.NewFileSource(
-		blocksStore,
-		resolvedStartBlock,
-		2,
-		filePreprocessor,
-		forkableSource,
-		bstream.FileSourceWithLogger(zlog),
-	), nil
+	source := stream.New(nil, blocksStore, nil, int64(startBlock), handler,
+		stream.WithPreprocessFuncDefaultThreadNumber(filePreprocessor),
+		stream.WithLogger(zlog),
+	)
+
+	return source, nil
 }
 
 func (fdb *FluxDB) BuildPipeline(
-	blockMeta pbblockmeta.BlockIDClient,
+	ctx context.Context,
 	getBlockID bstream.EternalSourceStartBackAtBlock,
 	handler bstream.Handler,
 	blocksStore dstore.Store,
+	oneBlocksStore dstore.Store,
 	blockStreamAddr string,
-) {
+) error {
 	fdbPreprocessor := NewPreprocessBlock(fdb.blockMapper)
-
 	preprocessor := bstream.PreprocessFunc(func(blk *bstream.Block) (interface{}, error) {
 		if fdb.blockFilter != nil {
 			err := fdb.blockFilter(blk)
@@ -103,57 +76,40 @@ func (fdb *FluxDB) BuildPipeline(
 				return nil, fmt.Errorf("block filter: %w", err)
 			}
 		}
-
 		return fdbPreprocessor(blk)
 	})
 
-	sf := bstream.SourceFromRefFactory(func(startBlock bstream.BlockRef, h bstream.Handler) bstream.Source {
-		forkableOptions := []forkable.Option{forkable.WithLogger(zlog), forkable.WithFilters(bstream.StepNew | bstream.StepIrreversible)}
-		if !bstream.EqualsBlockRefs(startBlock, bstream.BlockRefEmpty) {
-			// Only when we do **not** start from the beginning (i.e. startBlock is the empty block ref), that the
-			// forkable should be initialized with an initial LIB value. Otherwise, when we start fresh, the forkable
-			// will automatically set its LIB to the first streamable block of the chain.
-			zlog.Info("Setting forkable with exclusive LIB", zap.Stringer("lib", startBlock))
-			forkableOptions = append(forkableOptions, forkable.WithExclusiveLIB(startBlock))
-		}
-
-		if blockMeta != nil {
-			zlog.Info("configuring irreversibility checker on forkable handler")
-			forkableOptions = append(forkableOptions, forkable.WithIrreversibilityChecker(blockMeta, 5*time.Second))
-		}
-
-		// no need for a gate here, since we are starting with ExclusiveLIB, so at startBlock+1
-		forkHandler := forkable.New(h, forkableOptions...)
-
-		liveSourceFactory := bstream.SourceFactory(func(subHandler bstream.Handler) bstream.Source {
-			return blockstream.NewSource(
-				context.Background(),
-				blockStreamAddr,
-				250,
-				bstream.NewPreprocessor(preprocessor, subHandler),
-			)
-		})
-
-		fileSourceFactory := bstream.SourceFactory(func(subHandler bstream.Handler) bstream.Source {
-			fs := bstream.NewFileSource(
-				blocksStore,
-				startBlock.Num(),
-				2,
-				preprocessor,
-				subHandler,
-			)
-
-			return fs
-		})
-
-		return bstream.NewJoiningSource(fileSourceFactory, liveSourceFactory, forkHandler,
-			bstream.JoiningSourceLogger(zlog),
-			bstream.JoiningSourceTargetBlockID(startBlock.ID()),
-			bstream.JoiningSourceTargetBlockNum(bstream.GetProtocolFirstStreamableBlock),
+	liveSourceFactory := bstream.SourceFactory(func(h bstream.Handler) bstream.Source {
+		return blockstream.NewSource(
+			ctx,
+			blockStreamAddr,
+			250,
+			bstream.NewPreprocessor(preprocessor, h),
 		)
 	})
 
-	fdb.source = bstream.NewDelegatingEternalSource(sf, getBlockID, handler, bstream.EternalSourceWithLogger(zlog))
+	oneBlocksSourceFactory := bstream.SourceFromNumFactoryWithSkipFunc(func(num uint64, h bstream.Handler, skipFunc func(string) bool) bstream.Source {
+		src, err := bstream.NewOneBlocksSource(num, oneBlocksStore, h, bstream.OneBlocksSourceWithSkipperFunc(skipFunc))
+		if err != nil {
+			return nil
+		}
+		return src
+	})
+
+	fhub := hub.NewForkableHub(liveSourceFactory, oneBlocksSourceFactory, 0, forkable.WithLogger(zlog))
+
+	startBlock, err := getBlockID()
+	if err != nil {
+		return fmt.Errorf("get block id: %w", err)
+	}
+
+	source := stream.New(nil, blocksStore, fhub, int64(startBlock.Num()), handler,
+		stream.WithPreprocessFuncDefaultThreadNumber(preprocessor),
+		stream.WithLogger(zlog),
+	)
+
+	fdb.source = source
+	return nil
 }
 
 // FluxDBHandler is a pipeline that writes in FluxDB
@@ -295,11 +251,10 @@ func (p *FluxDBHandler) ProcessBlock(rawBlk *bstream.Block, rawObj interface{}) 
 	}
 
 	// TODO: move to bstream's interface that matches this, not the actual ForkableObject, when other step-related fields are exported
-	fObj := rawObj.(*forkable.ForkableObject)
+	step := rawObj.(bstream.Stepable).Step()
+	wrappedObj := rawObj.(bstream.ObjectWrapper).WrappedObject()
 
-	switch fObj.Step() {
-	case bstream.StepNew:
-
+	if step.Matches(bstream.StepNew) {
 		metrics.HeadBlockTimeDrift.SetBlockTime(rawBlk.Time())
 		metrics.HeadBlockNumber.SetUint64(rawBlk.Num())
 		if !p.db.IsReady() {
@@ -311,22 +266,18 @@ func (p *FluxDBHandler) ProcessBlock(rawBlk *bstream.Block, rawObj interface{}) 
 
 		previousRef := rawBlk.PreviousRef()
 
-		p.serverForkDB.AddLink(blkRef, previousRef.ID(), fObj.Obj.(*WriteRequest))
+		p.serverForkDB.AddLink(blkRef, previousRef.ID(), wrappedObj.(*WriteRequest))
 
 		// When we starting, if fluxdb internal forkdb has no LIB and we are seeing the first block, let's use it as the LIB
 		if rawBlk.Num() == bstream.GetProtocolFirstStreamableBlock && !p.serverForkDB.HasLIB() {
 			zlog.Info("setting internal forkdb LIB to first streamable block")
-			p.serverForkDB.TrySetLIB(rawBlk, previousRef.ID(), rawBlk.Num())
+			p.serverForkDB.SetLIB(rawBlk, previousRef.ID(), rawBlk.Num())
 		}
 
 		lib := bstream.NewBlockRef(p.serverForkDB.LIBID(), p.serverForkDB.LIBNum())
 		p.updateSpeculativeWrites(lib, rawBlk.AsRef())
-
-	case bstream.StepIrreversible:
-		if fObj.StepCount-1 != fObj.StepIndex { // last irreversible block in multi-block step
-			return nil
-		}
-
+	}
+	if step.Matches(bstream.StepIrreversible) {
 		now := time.Now()
 		if p.writeEnabled {
 			if len(p.batchWrites) == 0 {
@@ -334,13 +285,10 @@ func (p *FluxDBHandler) ProcessBlock(rawBlk *bstream.Block, rawObj interface{}) 
 				p.batchClose = now.Add(1 * time.Second) // Always flush at least the previous LIB
 			}
 
-			zlog.Debug("accumulating write request from irreversible blocks", zap.Stringer("block", rawBlk), zap.Int("block_count", len(fObj.StepBlocks)))
-			for _, newIrrBlk := range fObj.StepBlocks {
-				req := newIrrBlk.Obj.(*WriteRequest)
+			req := wrappedObj.(*WriteRequest)
 
-				p.batchWrites = append(p.batchWrites, req)
-				p.batchWritableRows += len(req.SingletEntries) + len(req.TabletRows)
-			}
+			p.batchWrites = append(p.batchWrites, req)
+			p.batchWritableRows += len(req.SingletEntries) + len(req.TabletRows)
 
 			if p.batchWritableRows > 5000 || now.After(p.batchClose) || p.writeOnEachIrreversibleStep {
 				defer func() {
@@ -387,9 +335,10 @@ func (p *FluxDBHandler) ProcessBlock(rawBlk *bstream.Block, rawObj interface{}) 
 				p.lastBlockIDCheck = time.Now()
 			}
 		}
+	}
 
-	default:
-		panic(fmt.Errorf("unsupported forkable step %q", fObj.Step()))
+	if !step.Matches(bstream.StepNew) && !step.Matches(bstream.StepIrreversible) {
+		panic(fmt.Errorf("unsupported forkable step %q", step))
 	}
 
 	return nil

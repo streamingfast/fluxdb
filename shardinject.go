@@ -61,7 +61,7 @@ func (s *ShardInjector) Run() (err error) {
 	startAfterNum := uint64(startAfter.Num())
 
 	// This expects an ordered walking of all files, so it's an important requierements on the backing store
-	err = s.shardsStore.Walk(ctx, "", "", func(filename string) error {
+	err = s.shardsStore.Walk(ctx, "", func(filename string) error {
 		fileFirst, fileLast, err := parseFileName(filename)
 		if err != nil {
 			return err
