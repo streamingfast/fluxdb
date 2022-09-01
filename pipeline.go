@@ -277,6 +277,7 @@ func (p *FluxDBHandler) ProcessBlock(rawBlk *bstream.Block, rawObj interface{}) 
 		lib := bstream.NewBlockRef(p.serverForkDB.LIBID(), p.serverForkDB.LIBNum())
 		p.updateSpeculativeWrites(lib, rawBlk.AsRef())
 	}
+
 	if step.Matches(bstream.StepIrreversible) {
 		now := time.Now()
 		if p.writeEnabled {

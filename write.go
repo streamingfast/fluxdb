@@ -332,7 +332,7 @@ func (fdb *FluxDB) isNextBlock(ctx context.Context, writeHeight uint64) error {
 
 	// FIXME (height): This works only for block num, if we move to a "height" structure, we should just check if linear probably
 	lastHeight := lastBlock.Num()
-	if lastHeight != writeHeight-1 && lastHeight != 0 && lastHeight != 1 {
+	if !(lastHeight >= writeHeight-1) && lastHeight != 0 && lastHeight != 1 {
 		return fmt.Errorf("block %d does not follow last block %d in db", writeHeight, lastHeight)
 	}
 

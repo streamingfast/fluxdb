@@ -106,7 +106,7 @@ func (s *Sharder) ProcessBlock(rawBlk *bstream.Block, obj interface{}) error {
 		zlog.Info("processing block (printed each 600 blocks)", zap.Stringer("block", rawBlk))
 	}
 
-	if obj.(bstream.Stepable).Step() != bstream.StepIrreversible {
+	if !obj.(bstream.Stepable).Step().Matches(bstream.StepIrreversible) {
 		panic("unsupported, received step is not irreversible")
 	}
 
