@@ -90,7 +90,7 @@ func (fdb *FluxDB) BuildPipeline(
 		return blockstream.NewSource(
 			ctx,
 			blockStreamAddr,
-			-1,
+			1,
 			bstream.NewPreprocessor(preprocessor, h),
 		)
 	})
@@ -103,7 +103,7 @@ func (fdb *FluxDB) BuildPipeline(
 		return src
 	})
 
-	fhub := hub.NewForkableHub(liveSourceFactory, oneBlocksSourceFactory, 0, forkable.WithLogger(zlog))
+	fhub := hub.NewForkableHub(liveSourceFactory, oneBlocksSourceFactory, 500, forkable.WithLogger(zlog))
 	go func() {
 		fhub.Run()
 	}()
