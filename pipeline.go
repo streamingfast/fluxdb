@@ -68,6 +68,8 @@ func (fdb *FluxDB) BuildPipeline(
 	oneBlocksStore dstore.Store,
 	blockStreamAddr string,
 ) error {
+	live := blockStreamAddr != ""
+
 	fdbPreprocessor := NewPreprocessBlock(fdb.blockMapper)
 	preprocessor := bstream.PreprocessFunc(func(blk *bstream.Block) (interface{}, error) {
 		if fdb.blockFilter != nil {
@@ -83,7 +85,7 @@ func (fdb *FluxDB) BuildPipeline(
 		return blockstream.NewSource(
 			ctx,
 			blockStreamAddr,
-			250,
+			-1,
 			bstream.NewPreprocessor(preprocessor, h),
 		)
 	})
@@ -97,6 +99,17 @@ func (fdb *FluxDB) BuildPipeline(
 	})
 
 	fhub := hub.NewForkableHub(liveSourceFactory, oneBlocksSourceFactory, 0, forkable.WithLogger(zlog))
+	go func() {
+		fhub.Run()
+	}()
+
+	if live {
+		select {
+		case <-fhub.Ready:
+		case <-ctx.Done():
+			return fmt.Errorf("forkable hub not ready: %w", ctx.Err())
+		}
+	}
 
 	startBlock, err := getBlockID()
 	if err != nil {
