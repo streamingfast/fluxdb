@@ -106,16 +106,19 @@ func (a *App) Run() error {
 	if err != nil {
 		return fmt.Errorf("unable to create store: %w", err)
 	}
+	zlog.Info("kv store", zap.String("dsn", a.config.StoreDSN))
 
 	blocksStore, err := dstore.NewDBinStore(a.config.BlockStoreURL)
 	if err != nil {
 		return fmt.Errorf("setting up source blocks store: %w", err)
 	}
+	zlog.Info("blocks store", zap.String("url", a.config.BlockStoreURL))
 
 	oneBlockStore, err := dstore.NewDBinStore(a.config.OneBlockStoreURL)
 	if err != nil {
 		return fmt.Errorf("setting up source one block store: %w", err)
 	}
+	zlog.Info("one block store", zap.String("url", a.config.OneBlockStoreURL))
 
 	if a.config.EnableInjectMode || a.config.EnableServerMode {
 		return a.startStandard(ctx, blocksStore, oneBlockStore, kvStore)

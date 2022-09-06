@@ -70,6 +70,11 @@ func (fdb *FluxDB) BuildPipeline(
 ) error {
 	live := blockStreamAddr != ""
 
+	zlog.Info("building pipeline",
+		zap.String("block_stream_addr", blockStreamAddr),
+		zap.Bool("live", live),
+	)
+
 	fdbPreprocessor := NewPreprocessBlock(fdb.blockMapper)
 	preprocessor := bstream.PreprocessFunc(func(blk *bstream.Block) (interface{}, error) {
 		if fdb.blockFilter != nil {
