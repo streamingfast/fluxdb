@@ -103,7 +103,10 @@ func (fdb *FluxDB) BuildPipeline(
 		return src
 	})
 
-	fhub := hub.NewForkableHub(liveSourceFactory, oneBlocksSourceFactory, 500, forkable.WithLogger(zlog))
+	fhub := hub.NewForkableHub(liveSourceFactory, oneBlocksSourceFactory, 500,
+		forkable.WithLogger(zlog),
+		forkable.WithFilters(bstream.StepNew|bstream.StepIrreversible),
+	)
 	go func() {
 		fhub.Run()
 	}()
