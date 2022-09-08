@@ -127,6 +127,7 @@ func (fdb *FluxDB) BuildPipeline(
 	source := stream.New(nil, blocksStore, fhub, int64(startBlock.Num()), handler,
 		stream.WithPreprocessFuncDefaultThreadNumber(preprocessor),
 		stream.WithLogger(zlog),
+		stream.WithCustomStepTypeFilter(bstream.StepNew|bstream.StepIrreversible),
 	)
 
 	fdb.source = source

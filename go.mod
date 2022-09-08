@@ -8,7 +8,7 @@ require (
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/minio/highwayhash v1.0.0
 	github.com/openzipkin/zipkin-go v0.4.0 // indirect
-	github.com/streamingfast/bstream v0.0.2-0.20220831142019-0a0b0caa04c3
+	github.com/streamingfast/bstream v0.0.2-0.20220908160523-05e20c3a2877
 	github.com/streamingfast/dbin v0.9.1-0.20220513054835-1abebbb944ad
 	github.com/streamingfast/derr v0.0.0-20220526184630-695c21740145
 	github.com/streamingfast/dgrpc v0.0.0-20220829125214-cfc425d39e84 // indirect
