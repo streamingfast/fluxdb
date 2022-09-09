@@ -92,7 +92,7 @@ type Singlet interface {
 // all code paths called here must not expected a maximum length and only deal with just enough
 // bytes to read the data needed from the key.
 func NewSinglet(singletKey []byte) (singlet Singlet, err error) {
-	if len(singletKey) <= 2 {
+	if len(singletKey) < 2 {
 		return nil, fmt.Errorf("invalid key length, expected at least 2 bytes, got %d", len(singletKey))
 	}
 
@@ -132,7 +132,7 @@ func SingletEqual(left, right Singlet) bool {
 type SingletKey []byte
 
 func (k SingletKeyAt) String() string {
-	if len(k) <= 2+8 {
+	if len(k) < 2+8 {
 		return fmt.Sprintf("#Error<Invalid singlet entry key %q: invalid key length, expected at least 10 bytes, got %d>", Key(k), len(k))
 	}
 
