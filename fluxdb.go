@@ -37,7 +37,7 @@ type FluxDB struct {
 	ignoreIndexRangeStart uint64
 	ignoreIndexRangeStop  uint64
 
-	// Deprecated: Use SpeculativeWritesFetcherByNum(ctx, bstream.NewBlockRef(0, headBlock), upToHeight)
+	// Deprecated: Use `SpeculativeWritesFetcherByNum(ctx, upToHeight)` (the `headBlock` was not used in the implementation hence why it's not part of `SpeculativeWritesFetcherByNum` anymore)
 	SpeculativeWritesFetcher      func(ctx context.Context, headBlock string, upToHeight uint64) (speculativeWrites []*WriteRequest)
 	SpeculativeWritesFetcherByNum func(ctx context.Context, upToHeight uint64) (speculativeWrites []*WriteRequest)
 	SpeculativeWritesFetcherByRef func(ctx context.Context, upToBlock bstream.BlockRef) (speculativeWrites []*WriteRequest)
@@ -78,6 +78,14 @@ func (fdb *FluxDB) Launch(ctx context.Context, disablePipeline bool) {
 	if disablePipeline {
 		zlog.Info("not using a pipeline, waiting forever (serve mode)")
 		fdb.SpeculativeWritesFetcher = func(ctx context.Context, headBlockID string, upToHeight uint64) (speculativeWrites []*WriteRequest) {
+			return nil
+		}
+
+		fdb.SpeculativeWritesFetcherByNum = func(ctx context.Context, upToHeight uint64) (speculativeWrites []*WriteRequest) {
+			return nil
+		}
+
+		fdb.SpeculativeWritesFetcherByRef = func(ctx context.Context, upToBlock bstream.BlockRef) (speculativeWrites []*WriteRequest) {
 			return nil
 		}
 

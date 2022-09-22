@@ -79,8 +79,8 @@ type KVStore interface {
 	// error hit.
 	FetchSingletEntry(ctx context.Context, keyStart, keyEnd []byte) (key []byte, value []byte, err error)
 
-	// FetchSingletEntries reads all single singlet entries for the given Singlet range. The range must include block
-	// boundaries to ensure we match only element from this singlet and not a next following.
+	// FetchSingletEntries reads all entries for the given Singlet within the specified key range. The range must
+	// include block boundaries to ensure we match only element from this singlet and not a next following.
 	FetchSingletEntries(ctx context.Context, keyStart, keyEnd []byte) (keys [][]byte, values [][]byte, err error)
 
 	ScanTabletRows(ctx context.Context, keyStart, keyEnd []byte, onKeyValue OnKeyValue) error

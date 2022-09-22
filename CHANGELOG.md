@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
-* **Deprecation** The `FluxDB#SpeculativeWritesFetcher` method is deprecated, use `FluxDB#SpeculativeWritesFetcherByNum` instead.
+* **Deprecation** The `FluxDBHandler#SpeculativeWritesFetcher` method is deprecated, use `FluxDBHandler#SpeculativeWritesFetcherByNum` instead.
 
 ### Added
 
@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Added speculative writes fetching using a particular block hash.
 
-- Added support to fetch an existing block from internal ForkDB (reversible segment of the chain).
+- Added `FluxDBHandler#ReversibleBlock` to fetch an existing block from internal ForkDB (reversible segment of the chain).
 
 ### Fixed
 
