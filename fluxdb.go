@@ -37,6 +37,8 @@ type FluxDB struct {
 	ignoreIndexRangeStart uint64
 	ignoreIndexRangeStop  uint64
 
+	skipLastCheckpointWrite bool
+
 	// Deprecated: Use `SpeculativeWritesFetcherByNum(ctx, upToHeight)` (the `headBlock` was not used in the implementation hence why it's not part of `SpeculativeWritesFetcherByNum` anymore)
 	SpeculativeWritesFetcher      func(ctx context.Context, headBlock string, upToHeight uint64) (speculativeWrites []*WriteRequest)
 	SpeculativeWritesFetcherByNum func(ctx context.Context, upToHeight uint64) (speculativeWrites []*WriteRequest)
@@ -63,8 +65,22 @@ type FluxDB struct {
 	ready bool
 }
 
-func New(kvStore store.KVStore, blockFilter func(blk *bstream.Block) error, blockMapper BlockMapper, disableIndexing bool) *FluxDB {
-	return &FluxDB{
+type Option func(*FluxDB)
+
+func WithDisableIndexing() Option {
+	return func(fdb *FluxDB) {
+		fdb.disableIndexing = true
+	}
+}
+
+func WithSkipLastCheckpointWrite() Option {
+	return func(fdb *FluxDB) {
+		fdb.skipLastCheckpointWrite = true
+	}
+}
+
+func New(kvStore store.KVStore, blockFilter func(blk *bstream.Block) error, blockMapper BlockMapper, disableIndexing bool, opts ...Option) *FluxDB {
+	fdb := &FluxDB{
 		Shutter:         shutter.New(),
 		store:           kvStore,
 		blockFilter:     blockFilter,
@@ -72,6 +88,12 @@ func New(kvStore store.KVStore, blockFilter func(blk *bstream.Block) error, bloc
 		idxCache:        newIndexCache(),
 		disableIndexing: disableIndexing,
 	}
+
+	for _, opt := range opts {
+		opt(fdb)
+	}
+
+	return fdb
 }
 
 func (fdb *FluxDB) Launch(ctx context.Context, disablePipeline bool) {

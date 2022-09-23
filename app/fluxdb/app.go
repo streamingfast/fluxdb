@@ -55,6 +55,7 @@ type Config struct {
 	// Available for reproc-injector only
 	ReprocInjectorShardIndex uint64
 
+	SkipLastCheckpointWrite    bool   // Skip writing the last checkpoint to the kv store
 	DisableIndexing            bool   // Disables indexing when injecting data in write mode, should never be used in production, present for repair jobs
 	DisableShardReconciliation bool   // Do not reconcile all shard last written block to the current active last written block, should never be used in production, present for repair jobs
 	DisablePipeline            bool   // Connects to blocks pipeline, can be used to have a development server only fluxdb
@@ -138,7 +139,15 @@ func (a *App) Run() error {
 func (a *App) startStandard(ctx context.Context, blocksStore dstore.Store, oneBlockStore dstore.Store, kvStore store.KVStore) error {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	db := fluxdb.New(kvStore, a.modules.BlockFilter, a.modules.BlockMapper, a.config.DisableIndexing)
+	var opts []fluxdb.Option
+	if a.config.DisableIndexing {
+		opts = append(opts, fluxdb.WithDisableIndexing())
+	}
+	if a.config.SkipLastCheckpointWrite {
+		opts = append(opts, fluxdb.WithSkipLastCheckpointWrite())
+	}
+
+	db := fluxdb.New(kvStore, a.modules.BlockFilter, a.modules.BlockMapper, a.config.DisableIndexing, opts...)
 	if a.config.IgnoreIndexRangeStart != 0 && a.config.IgnoreIndexRangeStop != 0 {
 		db.SetIgnoreIndexRange(a.config.IgnoreIndexRangeStart, a.config.IgnoreIndexRangeStop)
 	}
@@ -248,7 +257,15 @@ func appendPath(baseURL string, suffix string) (string, error) {
 }
 
 func (a *App) startReprocInjector(ctx context.Context, kvStore store.KVStore) error {
-	db := fluxdb.New(kvStore, a.modules.BlockFilter, a.modules.BlockMapper, a.config.DisableIndexing)
+	var opts []fluxdb.Option
+	if a.config.DisableIndexing {
+		opts = append(opts, fluxdb.WithDisableIndexing())
+	}
+	if a.config.SkipLastCheckpointWrite {
+		opts = append(opts, fluxdb.WithSkipLastCheckpointWrite())
+	}
+
+	db := fluxdb.New(kvStore, a.modules.BlockFilter, a.modules.BlockMapper, a.config.DisableIndexing, opts...)
 	if a.config.IgnoreIndexRangeStart != 0 && a.config.IgnoreIndexRangeStop != 0 {
 		db.SetIgnoreIndexRange(a.config.IgnoreIndexRangeStart, a.config.IgnoreIndexRangeStop)
 	}

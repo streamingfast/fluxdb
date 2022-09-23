@@ -340,6 +340,10 @@ func (fdb *FluxDB) isNextBlock(ctx context.Context, writeHeight uint64) error {
 }
 
 func (fdb *FluxDB) setLastCheckpoint(batch store.Batch, height uint64, lastBlock bstream.BlockRef) error {
+	if fdb.skipLastCheckpointWrite {
+		return nil
+	}
+
 	return fdb.setCheckpoint(batch, fdb.lastCheckpointKey(), height, lastBlock)
 }
 
