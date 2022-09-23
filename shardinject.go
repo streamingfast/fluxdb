@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/streamingfast/bstream"
 	"github.com/streamingfast/dbin"
 	"github.com/streamingfast/dstore"
 	pbfluxdb "github.com/streamingfast/pbgo/sf/fluxdb/v1"
@@ -58,7 +59,11 @@ func (s *ShardInjector) Run() (err error) {
 	}
 
 	zlog.Info("starting back shard injector", zap.Stringer("block", startAfter))
-	startAfterNum := uint64(startAfter.Num())
+	var startAfterNum *uint64
+	if !bstream.EqualsBlockRefs(startAfter, bstream.BlockRefEmpty) {
+		blockNum := startAfter.Num()
+		startAfterNum = &blockNum
+	}
 
 	// This expects an ordered walking of all files, so it's an important requierements on the backing store
 	err = s.shardsStore.Walk(ctx, "", func(filename string) error {
@@ -67,11 +72,11 @@ func (s *ShardInjector) Run() (err error) {
 			return err
 		}
 
-		if fileFirst > startAfterNum+1 {
+		if startAfterNum != nil && fileFirst > *startAfterNum+1 {
 			return fmt.Errorf("file %s starts at block %d, we were expecting to start right after %d, there is a hole in your block range files", filename, fileFirst, startAfter)
 		}
-		if fileLast <= startAfterNum {
-			zlog.Info("skipping shard file", zap.String("filename", filename), zap.Uint64("start_after", startAfterNum))
+		if startAfterNum != nil && fileLast <= *startAfterNum {
+			zlog.Info("skipping shard file", zap.String("filename", filename), zap.Uint64p("start_after", startAfterNum))
 			return nil
 		}
 
@@ -92,7 +97,7 @@ func (s *ShardInjector) Run() (err error) {
 			return fmt.Errorf("write batch %q: %w", filename, err)
 		}
 
-		startAfterNum = fileLast
+		startAfterNum = &fileLast
 		return nil
 	})
 
@@ -125,7 +130,7 @@ func parseFileName(filename string) (first, last uint64, err error) {
 	return
 }
 
-func ReadShard(reader io.Reader, startAfter uint64) ([]*WriteRequest, error) {
+func ReadShard(reader io.Reader, startAfter *uint64) ([]*WriteRequest, error) {
 	dbinDecoder := dbin.NewReader(reader)
 	contentType, version, err := dbinDecoder.ReadHeader()
 	if err != nil {
@@ -145,7 +150,7 @@ func ReadShard(reader io.Reader, startAfter uint64) ([]*WriteRequest, error) {
 				return nil, fmt.Errorf("unmarshal request: %w", err)
 			}
 
-			if protoRequest.Height <= startAfter {
+			if startAfter != nil && protoRequest.Height <= *startAfter {
 				continue
 			}
 
