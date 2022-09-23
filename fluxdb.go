@@ -32,12 +32,11 @@ type FluxDB struct {
 	blockMapper BlockMapper
 	blockFilter func(blk *bstream.Block) error
 
-	idxCache              *indexCache
-	disableIndexing       bool
-	ignoreIndexRangeStart uint64
-	ignoreIndexRangeStop  uint64
-
-	skipLastCheckpointWrite bool
+	idxCache                   *indexCache
+	disableIndexing            bool
+	ignoreIndexRangeStart      uint64
+	ignoreIndexRangeStop       uint64
+	disableLastCheckpointWrite bool
 
 	// Deprecated: Use `SpeculativeWritesFetcherByNum(ctx, upToHeight)` (the `headBlock` was not used in the implementation hence why it's not part of `SpeculativeWritesFetcherByNum` anymore)
 	SpeculativeWritesFetcher      func(ctx context.Context, headBlock string, upToHeight uint64) (speculativeWrites []*WriteRequest)
@@ -75,7 +74,7 @@ func WithDisableIndexing() Option {
 
 func WithSkipLastCheckpointWrite() Option {
 	return func(fdb *FluxDB) {
-		fdb.skipLastCheckpointWrite = true
+		fdb.disableLastCheckpointWrite = true
 	}
 }
 
