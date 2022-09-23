@@ -340,10 +340,6 @@ func (fdb *FluxDB) isNextBlock(ctx context.Context, writeHeight uint64) error {
 }
 
 func (fdb *FluxDB) setLastCheckpoint(batch store.Batch, height uint64, lastBlock bstream.BlockRef) error {
-	if fdb.disableLastCheckpointWrite {
-		return nil
-	}
-
 	return fdb.setCheckpoint(batch, fdb.lastCheckpointKey(), height, lastBlock)
 }
 
@@ -352,6 +348,10 @@ func (fdb *FluxDB) setFinalCheckpoint(batch store.Batch, height uint64, lastBloc
 }
 
 func (fdb *FluxDB) setCheckpoint(batch store.Batch, key []byte, height uint64, lastBlock bstream.BlockRef) error {
+	if fdb.disableLastCheckpointWrite {
+		return nil
+	}
+
 	cellData, err := proto.Marshal(&pbfluxdb.Checkpoint{
 		Height: height,
 		Block:  &pbbstream.BlockRef{Id: lastBlock.ID(), Num: lastBlock.Num()},
