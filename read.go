@@ -25,6 +25,7 @@ import (
 	"github.com/streamingfast/bstream"
 	"github.com/streamingfast/dtracing"
 	"github.com/streamingfast/fluxdb/store"
+	kvstore "github.com/streamingfast/kvdb/store"
 	"github.com/streamingfast/logging"
 	pbfluxdb "github.com/streamingfast/pbgo/sf/fluxdb/v1"
 	"go.uber.org/zap"
@@ -307,7 +308,9 @@ func (fdb *FluxDB) ReadSingletEntryAt(
 
 	// We are using inverted block num, so we are scanning from highest block num (request block num) to lowest block (0)
 	startKey := KeyForSingletAt(singlet, height)
-	endKey := KeyForSingletAt(singlet, 0)
+	// We use `Key(<key>).Next()` because `endKey` is actually exclusive but we want to inclusively match on
+	// `KeyForSingletAt(singlet, 0)` if it exists.
+	endKey := kvstore.Key(KeyForSingletAt(singlet, 0)).Next()
 
 	zlog := logging.Logger(ctx, zlog)
 	zlog.Debug("reading singlet entry from database", zap.Stringer("singlet", singlet), zap.Uint64("height", height), zap.Stringer("start_key", startKey), zap.Stringer("end_key", endKey))

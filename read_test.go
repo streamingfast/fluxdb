@@ -223,6 +223,15 @@ func TestReadSingletAt(t *testing.T) {
 		},
 
 		{
+			name: "fetch on height 0 is actually possible",
+			entries: []uint64{
+				0, 1, 5,
+			},
+			fetchForHeight: 0,
+			expectedEntry:  `0`,
+		},
+
+		{
 			name: "returns nil, nil when entry not found and no error",
 			entries: []uint64{
 				3, 5,
