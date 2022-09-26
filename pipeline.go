@@ -181,8 +181,12 @@ func (p *FluxDBHandler) InitializeStartBlockID() (startBlock bstream.BlockRef, e
 	zlog.Info("initializing pipeline forkdb", zap.Stringer("block", startBlock))
 	p.serverForkDB = forkable.NewForkDB(forkable.ForkDBWithLogger(zlog))
 	if !bstream.EqualsBlockRefs(startBlock, bstream.BlockRefEmpty) {
-		// If we are the empty block ref, we are going to initialize ourselves later on in the pipeline when we
-		// receive the first streamable block of the chain.
+		// If we are the empty block ref, we are going to initialize the LIB with a manual call
+		// to `SetLIB` later on in the pipeline from the first received streamable block directly.
+		// We do not because we do not know yet the actual block's hash of the first streamable block
+		// of the chain.
+		//
+		// See comment tagged 69f60031aecb1e0ee5a9b7876ea492f2 (search for it in project)
 		p.serverForkDB.InitLIB(startBlock)
 	}
 
@@ -290,8 +294,13 @@ func (p *FluxDBHandler) ProcessBlock(rawBlk *bstream.Block, rawObj interface{}) 
 
 		p.serverForkDB.AddLink(blkRef, previousRef.ID(), wrappedObj.(*WriteRequest))
 
-		// When we starting, if fluxdb internal forkdb has no LIB and we are seeing the first block, let's use it as the LIB
-		if rawBlk.Num() == bstream.GetProtocolFirstStreamableBlock && !p.serverForkDB.HasLIB() {
+		// When we starting, if fluxdb internal forkdb has no LIB, we perform a check to determine if we
+		// should manually set the LIB:
+		//
+		// - If the block is the first streamable block, we use it as the LIB
+		//
+		// See comment tagged 69f60031aecb1e0ee5a9b7876ea492f2 (search for it in project)
+		if !p.serverForkDB.HasLIB() && (rawBlk.Num() == bstream.GetProtocolFirstStreamableBlock) {
 			zlog.Info("setting internal forkdb LIB to first streamable block")
 			p.serverForkDB.SetLIB(rawBlk, previousRef.ID(), rawBlk.Num())
 		}
