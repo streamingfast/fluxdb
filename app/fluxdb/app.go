@@ -55,8 +55,6 @@ type Config struct {
 	// Available for reproc-injector only
 	ReprocInjectorShardIndex uint64
 
-	StartBlockOverride *uint64
-
 	DisableLastCheckpointWrite bool   // Disables writing the last checkpoint to the kv store
 	DisableIndexing            bool   // Disables indexing when injecting data in write mode, should never be used in production, present for repair jobs
 	DisableShardReconciliation bool   // Do not reconcile all shard last written block to the current active last written block, should never be used in production, present for repair jobs
@@ -155,13 +153,7 @@ func (a *App) startStandard(ctx context.Context, blocksStore dstore.Store, oneBl
 	}
 
 	zlog.Info("initiating fluxdb handler")
-
-	var handlerOpts []fluxdb.HandlerOption
-	if a.config.StartBlockOverride != nil {
-		handlerOpts = append(handlerOpts, fluxdb.WithStartBlockOverride(*a.config.StartBlockOverride))
-	}
-
-	fluxDBHandler := fluxdb.NewHandler(db, handlerOpts...)
+	fluxDBHandler := fluxdb.NewHandler(db)
 
 	db.SpeculativeWritesFetcher = fluxDBHandler.FetchSpeculativeWrites
 	db.SpeculativeWritesFetcherByNum = fluxDBHandler.FetchSpeculativeWritesByNum

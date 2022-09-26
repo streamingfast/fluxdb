@@ -154,30 +154,14 @@ type FluxDBHandler struct {
 	batchWritableRows int
 
 	lastBlockIDCheck time.Time
-
-	startBlockOverride *uint64
 }
 
-type HandlerOption func(*FluxDBHandler)
-
-func WithStartBlockOverride(startBlock uint64) HandlerOption {
-	return func(p *FluxDBHandler) {
-		*p.startBlockOverride = startBlock
-	}
-}
-
-func NewHandler(db *FluxDB, opts ...HandlerOption) *FluxDBHandler {
-	h := &FluxDBHandler{
+func NewHandler(db *FluxDB) *FluxDBHandler {
+	return &FluxDBHandler{
 		db:        db,
 		ctx:       context.Background(),
 		headBlock: bstream.BlockRefEmpty,
 	}
-
-	for _, opt := range opts {
-		opt(h)
-	}
-
-	return h
 }
 
 func (p *FluxDBHandler) EnableWrites() {
@@ -189,11 +173,6 @@ func (p *FluxDBHandler) EnableWriteOnEachIrreversibleStep() {
 }
 
 func (p *FluxDBHandler) InitializeStartBlockID() (startBlock bstream.BlockRef, err error) {
-	if p.startBlockOverride != nil {
-		startBlock = bstream.NewBlockRef("", *p.startBlockOverride)
-		return
-	}
-
 	_, startBlock, err = p.db.FetchLastWrittenCheckpoint(p.ctx)
 	if err != nil {
 		return nil, err
