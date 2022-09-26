@@ -165,6 +165,22 @@ func TestReadTabletRowAt_OnlyFromIndex(t *testing.T) {
 	require.Equal(t, tablet.row(t, 100, "002", "abc"), row)
 }
 
+func TestReadTabletRowAt_BlockHeight0(t *testing.T) {
+	db, closer := NewTestDB(t)
+	defer closer()
+
+	tablet := newTestTablet("tbl")
+
+	writeBatchOfRequests(t, db,
+		&WriteRequest{TabletRows: []TabletRow{tablet.row(t, 0, "002", "abc")}},
+	)
+
+	row, err := db.ReadTabletRowAt(context.Background(), 0, tablet, testTabletRowPrimaryKey([]byte("002")), nil)
+
+	require.NoError(t, err)
+	require.Equal(t, tablet.row(t, 0, "002", "abc"), row)
+}
+
 func TestReadSingletAt(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -286,6 +302,23 @@ func TestReadSingletAt_WithSpeculative(t *testing.T) {
 	assert.Equal(t, singlet.entry(t, height+1, "002"), entry)
 }
 
+func TestReadSingletAt_BlockHeight0_OnlyInSpeculative(t *testing.T) {
+	db, closer := NewTestDB(t)
+	defer closer()
+
+	height := uint64(0)
+	singlet := newTestSinglet("tst")
+
+	speculativeWrites := []*WriteRequest{
+		singletEntries(height, singlet.entry(t, height, "000")),
+	}
+
+	entry, err := db.ReadSingletEntryAt(context.Background(), singlet, height, speculativeWrites)
+
+	require.NoError(t, err)
+	assert.Equal(t, singlet.entry(t, height, "000"), entry)
+}
+
 func TestReadSingletAt_OnlyInSpeculative(t *testing.T) {
 	db, closer := NewTestDB(t)
 	defer closer()
@@ -301,6 +334,57 @@ func TestReadSingletAt_OnlyInSpeculative(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, singlet.entry(t, height+1, "002"), entry)
+}
+
+func TestReadSingletEntries(t *testing.T) {
+	db, closer := NewTestDB(t)
+	defer closer()
+
+	height := uint64(0)
+	singlet := newTestSinglet("tst")
+
+	writeBatchOfRequests(t, db,
+		&WriteRequest{SingletEntries: []SingletEntry{singlet.entry(t, height, "000")}},
+		&WriteRequest{SingletEntries: []SingletEntry{singlet.entry(t, height+2, "002")}},
+		&WriteRequest{SingletEntries: []SingletEntry{singlet.entry(t, height+1, "001")}},
+	)
+
+	speculativeWrites := []*WriteRequest{
+		singletEntries(height+3, singlet.entry(t, height+3, "003")),
+	}
+
+	entries, err := db.ReadSingletEntries(context.Background(), singlet, speculativeWrites)
+
+	require.NoError(t, err)
+	assert.Equal(t, []SingletEntry{
+		singlet.entry(t, height+3, "003"),
+		singlet.entry(t, height+2, "002"),
+		singlet.entry(t, height+1, "001"),
+		singlet.entry(t, height, "000"),
+	}, entries)
+}
+
+func TestReadSingletEntries_OnlySpeculative(t *testing.T) {
+	db, closer := NewTestDB(t)
+	defer closer()
+
+	height := uint64(0)
+	singlet := newTestSinglet("tst")
+
+	speculativeWrites := []*WriteRequest{
+		singletEntries(height, singlet.entry(t, height, "000")),
+		singletEntries(height+2, singlet.entry(t, height+2, "002")),
+		singletEntries(height+5, singlet.entry(t, height+5, "005")),
+	}
+
+	entries, err := db.ReadSingletEntries(context.Background(), singlet, speculativeWrites)
+
+	require.NoError(t, err)
+	assert.Equal(t, []SingletEntry{
+		singlet.entry(t, height, "000"),
+		singlet.entry(t, height+2, "002"),
+		singlet.entry(t, height+5, "005"),
+	}, entries)
 }
 
 func assertError(t *testing.T, expected error, actual error) {

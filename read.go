@@ -349,6 +349,7 @@ func (fdb *FluxDB) ReadSingletEntryAt(
 }
 
 // ReadSingletEntries query the storage engine returning all entries for a precise singlet
+// ordered from most recent entries to least recent entries.
 //
 // Returns `<Entry>, nil` when an entry has been found, `nil, nil` when no entry was found
 // and finally, `nil, <error>` if an error was encountered while fetching the singlet entry.
@@ -362,7 +363,9 @@ func (fdb *FluxDB) ReadSingletEntries(
 
 	// We are using inverted block num, so we are scanning from highest block num to lowest block (0)
 	startKey := KeyForSingletAt(singlet, math.MaxUint64)
-	endKey := KeyForSingletAt(singlet, 0)
+	// We use `Key(<key>).Next()` because `endKey` is actually exclusive but we want to inclusively match on
+	// `KeyForSingletAt(singlet, 0)` if it exists.
+	endKey := kvstore.Key(KeyForSingletAt(singlet, 0)).Next()
 
 	zlog := logging.Logger(ctx, zlog)
 	zlog.Debug("reading singlet entries from database", zap.Stringer("singlet", singlet), zap.Stringer("start_key", startKey), zap.Stringer("end_key", endKey))
@@ -372,17 +375,13 @@ func (fdb *FluxDB) ReadSingletEntries(
 		return nil, fmt.Errorf("db fetch single entry: %w", err)
 	}
 
+	// We create the array because we known in advance how many entries we have so we can pre-allocate the
+	// backing array. However, we want to actually put first the speculative writes in the array because it's the
+	// order we want them to be returned in. So we do pre-allocate but put speculative writes first and then
+	// those from the database.
 	entries := make([]SingletEntry, 0, len(keys)+8)
-	for i, key := range keys {
-		entry, err := NewSingletEntry(singlet, key, values[i])
-		if err != nil {
-			return nil, fmt.Errorf("failed to create singlet entry %q: %w", Key(key), err)
-		}
 
-		entries = append(entries, entry)
-	}
-
-	zlog.Debug("reading singlet entry from speculative writes", zap.Int("db_entry_count", len(entries)), zap.Int("speculative_write_count", len(speculativeWrites)))
+	zlog.Debug("reading singlet entries from speculative writes", zap.Int("db_entry_count", len(keys)), zap.Int("speculative_write_count", len(speculativeWrites)))
 	for _, writeRequest := range speculativeWrites {
 		for _, speculativeEntry := range writeRequest.SingletEntries {
 			if !SingletEqual(singlet, speculativeEntry.Singlet()) {
@@ -391,6 +390,17 @@ func (fdb *FluxDB) ReadSingletEntries(
 
 			entries = append(entries, speculativeEntry)
 		}
+	}
+
+	zlog.Debug("adding singlet entries from database", zap.Int("entry_count", len(entries)))
+
+	for i, key := range keys {
+		entry, err := NewSingletEntry(singlet, key, values[i])
+		if err != nil {
+			return nil, fmt.Errorf("failed to create singlet entry %q: %w", Key(key), err)
+		}
+
+		entries = append(entries, entry)
 	}
 
 	zlog.Debug("finished reading singlet entry", zap.Int("entry_count", len(entries)))

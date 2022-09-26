@@ -19,6 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fixed `ReadSingletEntries` returning only one result.
+
+- Fixed `ReadSingletEntries` where a singlet entry at height 0 was not included.
+
+- Fixed `ReadSingletEntries` ordering which was incorrect putting entries from speculative writes at the end instead of at the beginning.
+
 - Fixed a bug where it was not possible to read a singlet entry at height 0.
 
 - Fixed a bug when reading a single table row and it's present in the index, it was not picked up correctly.

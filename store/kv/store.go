@@ -83,7 +83,7 @@ func (s *KVStore) FetchSingletEntry(ctx context.Context, keyStart, keyEnd []byte
 }
 
 func (s *KVStore) FetchSingletEntries(ctx context.Context, keyStart, keyEnd []byte) (keys [][]byte, values [][]byte, err error) {
-	err = s.scanRange(ctx, TblPrefixRows, keyStart, keyEnd, 1, func(rowKey []byte, rowValue []byte) error {
+	err = s.scanRange(ctx, TblPrefixRows, keyStart, keyEnd, -1, func(rowKey []byte, rowValue []byte) error {
 		keys = append(keys, rowKey)
 		values = append(values, rowValue)
 
