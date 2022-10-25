@@ -290,9 +290,9 @@ func (p *FluxDBHandler) ProcessBlock(rawBlk *bstream.Block, rawObj interface{}) 
 			}
 		}
 
-		previousRef := rawBlk.PreviousRef()
+		previousID := rawBlk.PreviousID()
 
-		p.serverForkDB.AddLink(blkRef, previousRef.ID(), wrappedObj.(*WriteRequest))
+		p.serverForkDB.AddLink(blkRef, previousID, wrappedObj.(*WriteRequest))
 
 		// When we starting, if fluxdb internal forkdb has no LIB, we perform a check to determine if we
 		// should manually set the LIB:
@@ -302,7 +302,7 @@ func (p *FluxDBHandler) ProcessBlock(rawBlk *bstream.Block, rawObj interface{}) 
 		// See comment tagged 69f60031aecb1e0ee5a9b7876ea492f2 (search for it in project)
 		if !p.serverForkDB.HasLIB() && (rawBlk.Num() == bstream.GetProtocolFirstStreamableBlock) {
 			zlog.Info("setting internal forkdb LIB to first streamable block")
-			p.serverForkDB.SetLIB(rawBlk, previousRef.ID(), rawBlk.Num())
+			p.serverForkDB.SetLIB(rawBlk, previousID, rawBlk.Num())
 		}
 
 		lib := bstream.NewBlockRef(p.serverForkDB.LIBID(), p.serverForkDB.LIBNum())

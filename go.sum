@@ -486,6 +486,8 @@ github.com/streamingfast/atm v0.0.0-20220131151839-18c87005e680 h1:fGJnUx0shX9Y3
 github.com/streamingfast/atm v0.0.0-20220131151839-18c87005e680/go.mod h1:iISPGAstbUsPgyC3auLLi7PYUTi9lHv5z0COam0OPOY=
 github.com/streamingfast/bstream v0.0.2-0.20220914142234-7ac18d3617ae h1:r7m413GjpEQ5sopJ9seKejvo/IMvkC9gyXYs2ybkbXE=
 github.com/streamingfast/bstream v0.0.2-0.20220914142234-7ac18d3617ae/go.mod h1:Njkx972HcZiz0djWBylxqO/eq686eDGr+egQ1lePj3Q=
+github.com/streamingfast/bstream v0.0.2-0.20221017131819-2a7e38be1047 h1:BExIqX4qVbbjD6yyiNYJIY1prLlbuBvnPweIwtZZgp4=
+github.com/streamingfast/bstream v0.0.2-0.20221017131819-2a7e38be1047/go.mod h1:Njkx972HcZiz0djWBylxqO/eq686eDGr+egQ1lePj3Q=
 github.com/streamingfast/dbin v0.0.0-20210809205249-73d5eca35dc5/go.mod h1:YStE7K5/GH47JsWpY7LMKsDaXXpMLU/M26vYFzXHYRk=
 github.com/streamingfast/dbin v0.9.1-0.20220513054835-1abebbb944ad h1:6z4uS6TlD9KoHdyE1vzoGsELVCCcviTFT/3/vqCylh8=
 github.com/streamingfast/dbin v0.9.1-0.20220513054835-1abebbb944ad/go.mod h1:YStE7K5/GH47JsWpY7LMKsDaXXpMLU/M26vYFzXHYRk=
