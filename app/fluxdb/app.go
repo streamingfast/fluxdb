@@ -155,13 +155,6 @@ func (a *App) startStandard(ctx context.Context, blocksStore dstore.Store, oneBl
 	zlog.Info("initiating fluxdb handler")
 	fluxDBHandler := fluxdb.NewHandler(db)
 
-	db.SpeculativeWritesFetcher = fluxDBHandler.FetchSpeculativeWrites
-	db.SpeculativeWritesFetcherByNum = fluxDBHandler.FetchSpeculativeWritesByNum
-	db.SpeculativeWritesFetcherByRef = fluxDBHandler.FetchSpeculativeWritesByRef
-
-	db.HeadBlock = fluxDBHandler.HeadBlock
-	db.ReversibleBlock = fluxDBHandler.ReversibleBlock
-
 	a.OnTerminating(func(_ error) {
 		cancel()
 		db.Shutdown(nil)
@@ -170,7 +163,17 @@ func (a *App) startStandard(ctx context.Context, blocksStore dstore.Store, oneBl
 	db.OnTerminated(a.Shutdown)
 
 	if a.config.EnableInjectMode || !a.config.DisablePipeline {
-		err := db.BuildPipeline(ctx, fluxDBHandler.InitializeStartBlockID, fluxDBHandler, blocksStore, oneBlockStore, a.config.BlockStreamAddr)
+		err := db.BuildPipeline(
+			ctx,
+			fluxDBHandler.InitializeStartBlockID,
+			fluxDBHandler,
+			blocksStore,
+			oneBlockStore,
+			a.config.BlockStreamAddr,
+			fluxDBHandler.FetchSpeculativeWrites,
+			fluxDBHandler.HeadBlock,
+			fluxDBHandler.ReversibleBlock,
+		)
 		if err != nil {
 			return fmt.Errorf("unable to build pipeline: %w", err)
 		}

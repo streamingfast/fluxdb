@@ -16,6 +16,7 @@ package fluxdb
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/streamingfast/bstream"
@@ -24,6 +25,9 @@ import (
 	"github.com/streamingfast/shutter"
 	"go.uber.org/zap"
 )
+
+var ErrNotReady = errors.New("fluxdb not ready")
+var ErrRequestedBlockNotFound = errors.New("requested block not found")
 
 type FluxDB struct {
 	*shutter.Shutter
@@ -38,24 +42,9 @@ type FluxDB struct {
 	ignoreIndexRangeStop       uint64
 	disableLastCheckpointWrite bool
 
-	// Deprecated: Use `SpeculativeWritesFetcherByNum(ctx, upToHeight)` (the `headBlock` was not used in the implementation hence why it's not part of `SpeculativeWritesFetcherByNum` anymore)
-	SpeculativeWritesFetcher      func(ctx context.Context, headBlock string, upToHeight uint64) (speculativeWrites []*WriteRequest)
-	SpeculativeWritesFetcherByNum func(ctx context.Context, upToHeight uint64) (speculativeWrites []*WriteRequest)
-	SpeculativeWritesFetcherByRef func(ctx context.Context, upToBlock bstream.BlockRef) (speculativeWrites []*WriteRequest)
-
-	HeadBlock func(ctx context.Context) bstream.BlockRef
-
-	// ReversibleBlock is a public function that will return the reference to a reversible
-	// block that matches the received hash.
-	//
-	// If the block is not found or there is no live pipeline configured internally,
-	// the returned value is `nil`, `nil`.
-	//
-	// If the block is found, the speculative write request for this block is returned as the
-	// second returned value.
-	//
-	// If block hash is found in our reversible segment, both returned value will be non `nil`.
-	ReversibleBlock func(ctx context.Context, hash string) (bstream.BlockRef, *WriteRequest)
+	speculativeWritesFetcher     func(ctx context.Context, optionalRequestBlock bstream.BlockRef) (speculativeWrites []*WriteRequest, atFinalBlock uint64, err error)
+	headBlockFetcher             func(ctx context.Context) bstream.BlockRef
+	reversibleBlockWritesFetcher func(ctx context.Context, hash string) (bstream.BlockRef, *WriteRequest)
 
 	shardIndex int
 	shardCount int
@@ -98,45 +87,83 @@ func New(kvStore store.KVStore, blockFilter func(blk *bstream.Block) error, bloc
 func (fdb *FluxDB) Launch(ctx context.Context, disablePipeline bool) {
 	if disablePipeline {
 		zlog.Info("not using a pipeline, waiting forever (serve mode)")
-		fdb.SpeculativeWritesFetcher = func(ctx context.Context, headBlockID string, upToHeight uint64) (speculativeWrites []*WriteRequest) {
-			return nil
-		}
-
-		fdb.SpeculativeWritesFetcherByNum = func(ctx context.Context, upToHeight uint64) (speculativeWrites []*WriteRequest) {
-			return nil
-		}
-
-		fdb.SpeculativeWritesFetcherByRef = func(ctx context.Context, upToBlock bstream.BlockRef) (speculativeWrites []*WriteRequest) {
-			return nil
-		}
-
-		fdb.ReversibleBlock = func(ctx context.Context, hash string) (bstream.BlockRef, *WriteRequest) {
-			return nil, nil
-		}
-
-		fdb.HeadBlock = func(ctx context.Context) bstream.BlockRef {
-			// FIXME (height): Will need to be revisited here for height support
-			_, lastWrittenBlock, err := fdb.FetchLastWrittenCheckpoint(ctx)
-			if err != nil {
-				fdb.Shutdown(fmt.Errorf("failed fetching the last written block: %w", err))
-				return bstream.BlockRefEmpty
-			}
-			return lastWrittenBlock
-		}
-
 		<-fdb.Terminating()
 		zlog.Info("fluxdb server completed")
+		return
 
-	} else {
-		// running the pipeline, this call is blocking
-		zlog.Info("starting pipeline")
-		err := fdb.source.Run(ctx)
-
-		zlog.Info("fluxdb source shutdown", zap.Error(err))
-		fdb.Shutdown(err)
 	}
+	// running the pipeline, this call is blocking
+	zlog.Info("starting pipeline")
+	err := fdb.source.Run(ctx)
 
-	return
+	zlog.Info("fluxdb source shutdown", zap.Error(err))
+	fdb.Shutdown(err)
+}
+
+// SpeculativeWrites returns the speculative writes up to optionalRequestBlock (or to HEAD if nil).
+//
+// * `optionalRequestBlock` may contain only a number (with id="")
+// * It also returns atFinalBlock so you know from where you should apply speculativeWrites
+// * It should return ErrNotReady if there is currently no headBlock,
+// * or ErrRequestedBlockNotFound if it cannot match the optionalRequestBlock.
+func (fdb *FluxDB) SpeculativeWrites(ctx context.Context, optionalRequestBlock bstream.BlockRef) (speculativeWrites []*WriteRequest, atFinalBlock uint64, err error) {
+	if fdb.speculativeWritesFetcher != nil {
+		return fdb.speculativeWritesFetcher(ctx, optionalRequestBlock)
+	}
+	return fdb.defaultSpeculativeWritesFetcher(ctx, optionalRequestBlock)
+}
+
+// HeadBlock simply returns the highest block in the chain
+func (fdb *FluxDB) HeadBlock(ctx context.Context) bstream.BlockRef {
+	if fdb.headBlockFetcher != nil {
+		return fdb.headBlockFetcher(ctx)
+	}
+	return fdb.defaultHeadBlockFetcher(ctx)
+}
+
+// ReversibleBlockWrites is a public function that will return the reference to a reversible
+// block that matches the received hash.
+//
+// If the block is not found or there is no live pipeline configured internally,
+// the returned value is `nil`, `nil`.
+//
+// If the block is found, the speculative write request for this block is returned as the
+// second returned value.
+//
+// If block hash is found in our reversible segment, both returned value will be non `nil`.
+func (fdb *FluxDB) ReversibleBlockWrites(ctx context.Context, hash string) (bstream.BlockRef, *WriteRequest) {
+	if fdb.reversibleBlockWritesFetcher != nil {
+		return fdb.reversibleBlockWritesFetcher(ctx, hash)
+	}
+	return fdb.defaultReversibleBlockWritesFetcher(ctx, hash)
+}
+
+func (fdb *FluxDB) defaultSpeculativeWritesFetcher(ctx context.Context, optionalRequestBlock bstream.BlockRef) (speculativeWrites []*WriteRequest, atFinalBlock uint64, err error) {
+	head := fdb.HeadBlock(ctx)
+	if head == nil {
+		return nil, 0, ErrNotReady
+	}
+	if optionalRequestBlock != nil {
+		if optionalRequestBlock.Num() > head.Num() {
+			return nil, 0, ErrRequestedBlockNotFound
+		}
+		return nil, optionalRequestBlock.Num(), nil
+	}
+	return nil, 0, nil
+}
+
+func (fdb *FluxDB) defaultHeadBlockFetcher(ctx context.Context) bstream.BlockRef {
+	// FIXME (height): Will need to be revisited here for height support
+	_, lastWrittenBlock, err := fdb.FetchLastWrittenCheckpoint(ctx)
+	if err != nil {
+		fdb.Shutdown(fmt.Errorf("failed fetching the last written block: %w", err))
+		return bstream.BlockRefEmpty
+	}
+	return lastWrittenBlock
+}
+
+func (fdb *FluxDB) defaultReversibleBlockWritesFetcher(ctx context.Context, hash string) (bstream.BlockRef, *WriteRequest) {
+	return nil, nil
 }
 
 func (fdb *FluxDB) SetSharding(shardIndex, shardCount int) {

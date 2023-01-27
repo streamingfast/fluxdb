@@ -67,6 +67,9 @@ func (fdb *FluxDB) BuildPipeline(
 	blocksStore dstore.Store,
 	oneBlocksStore dstore.Store,
 	blockStreamAddr string,
+	speculativeWritesFetcher func(ctx context.Context, optionalRequestBlock bstream.BlockRef) (speculativeWrites []*WriteRequest, atFinalBlock uint64, err error),
+	headBlockFetcher func(ctx context.Context) bstream.BlockRef,
+	reversibleBlockWritesFetcher func(ctx context.Context, hash string) (bstream.BlockRef, *WriteRequest),
 ) error {
 	live := blockStreamAddr != ""
 
@@ -131,6 +134,15 @@ func (fdb *FluxDB) BuildPipeline(
 	)
 
 	fdb.source = source
+	if reversibleBlockWritesFetcher != nil {
+		fdb.reversibleBlockWritesFetcher = reversibleBlockWritesFetcher
+	}
+	if headBlockFetcher != nil {
+		fdb.headBlockFetcher = headBlockFetcher
+	}
+	if speculativeWritesFetcher != nil {
+		fdb.speculativeWritesFetcher = speculativeWritesFetcher
+	}
 	return nil
 }
 
@@ -143,8 +155,8 @@ type FluxDBHandler struct {
 	writeOnEachIrreversibleStep bool
 	serverForkDB                *forkable.ForkDB
 	headBlock                   bstream.BlockRef
+	lib                         bstream.BlockRef
 
-	speculativeWritesLIB bstream.BlockRef
 	speculativeWrites    []*WriteRequest
 	speculativeReadsLock sync.RWMutex
 
@@ -210,56 +222,98 @@ func (p *FluxDBHandler) ReversibleBlock(ctx context.Context, hash string) (bstre
 	return blk.AsRef(), blk.Object.(*WriteRequest)
 }
 
-func (p *FluxDBHandler) FetchSpeculativeWrites(ctx context.Context, _ string, upToHeight uint64) (speculativeWrites []*WriteRequest) {
-	return p.FetchSpeculativeWritesByNum(ctx, upToHeight)
-}
-
-func (p *FluxDBHandler) FetchSpeculativeWritesByNum(ctx context.Context, upToHeight uint64) (speculativeWrites []*WriteRequest) {
+func (p *FluxDBHandler) FetchSpeculativeWrites(ctx context.Context, optionalRequestBlock bstream.BlockRef) (speculativeWrites []*WriteRequest, atFinalBlock uint64, err error) {
 	p.speculativeReadsLock.RLock()
 	defer p.speculativeReadsLock.RUnlock()
 
-	for _, write := range p.speculativeWrites {
-		if write.Height > upToHeight {
-			continue
-		}
-		speculativeWrites = append(speculativeWrites, write)
+	atFinalBlock = p.lib.Num()
+
+	head := p.headBlock
+	if head == nil {
+		return nil, 0, ErrNotReady
 	}
 
+	if optionalRequestBlock != nil && optionalRequestBlock.Num() > head.Num() {
+		return nil, 0, ErrRequestedBlockNotFound
+	}
+
+	if isUpToHead := optionalRequestBlock == nil ||
+		optionalRequestBlock.ID() == head.ID() ||
+		(optionalRequestBlock.ID() == "" && optionalRequestBlock.Num() == head.Num()); isUpToHead {
+
+		for _, write := range p.speculativeWrites {
+			speculativeWrites = append(speculativeWrites, write)
+		}
+		return
+	}
+
+	if upToBlockRef := optionalRequestBlock; upToBlockRef.ID() != "" {
+		if writes := p.fetchSpeculativeWritesForBlockRefInCurrentChain(upToBlockRef); writes != nil {
+			speculativeWrites = writes
+			return
+		}
+
+		speculativeWrites, err = p.fetchSpeculativeWritesForBlockRefInForkDB(p.lib, upToBlockRef)
+		return
+	}
+
+	speculativeWrites = p.fetchSpeculativeWritesForBlockNumInCurrentChain(optionalRequestBlock.Num())
 	return
 }
 
-func (p *FluxDBHandler) FetchSpeculativeWritesByRef(ctx context.Context, upToBlock bstream.BlockRef) (speculativeWrites []*WriteRequest) {
-	p.speculativeReadsLock.RLock()
-	lib := p.speculativeWritesLIB
-	p.speculativeReadsLock.RUnlock()
-
-	return p.reversibleWriteRequestsAt(lib, upToBlock)
-}
-
 func (p *FluxDBHandler) updateSpeculativeWrites(lib bstream.BlockRef, newHeadBlock bstream.BlockRef) {
-	newWrites := p.reversibleWriteRequestsAt(lib, newHeadBlock)
+	newWrites, err := p.fetchSpeculativeWritesForBlockRefInForkDB(lib, newHeadBlock)
+	if err != nil {
+		panic(err)
+	}
 
 	p.speculativeReadsLock.Lock()
 	defer p.speculativeReadsLock.Unlock()
 
 	p.speculativeWrites = newWrites
 	p.headBlock = newHeadBlock
+	p.lib = lib
 }
 
-func (p *FluxDBHandler) reversibleWriteRequestsAt(lib bstream.BlockRef, blockRef bstream.BlockRef) []*WriteRequest {
+// this lookup method is faster than looking in forkdb if it works
+func (p *FluxDBHandler) fetchSpeculativeWritesForBlockRefInCurrentChain(upToBlockRef bstream.BlockRef) []*WriteRequest {
+	var speculativeWrites []*WriteRequest
+	for _, write := range p.speculativeWrites {
+		speculativeWrites = append(speculativeWrites, write)
+		if write.BlockRef.ID() == upToBlockRef.ID() {
+			return speculativeWrites
+		}
+	}
+	return nil
+}
+
+func (p *FluxDBHandler) fetchSpeculativeWritesForBlockNumInCurrentChain(upToBlockNum uint64) (speculativeWrites []*WriteRequest) {
+	for _, write := range p.speculativeWrites {
+		if write.Height > upToBlockNum {
+			return
+		}
+		speculativeWrites = append(speculativeWrites, write)
+	}
+	return
+}
+
+func (p *FluxDBHandler) fetchSpeculativeWritesForBlockRefInForkDB(lib bstream.BlockRef, blockRef bstream.BlockRef) ([]*WriteRequest, error) {
 	// If the requested block is below our LIB, than it means it's a non-speculative block and there is no write requests to process here
 	if lib != nil && blockRef.Num() > bstream.GetProtocolFirstStreamableBlock && blockRef.Num() < lib.Num() {
-		return nil
+		return nil, ErrRequestedBlockNotFound
 	}
 
-	blocks, _ := p.serverForkDB.ReversibleSegment(blockRef)
+	blocks, reachedLIB := p.serverForkDB.ReversibleSegment(blockRef)
+	if !reachedLIB {
+		return nil, ErrRequestedBlockNotFound
+	}
 
 	if len(blocks) == 0 && blockRef.Num() == bstream.GetProtocolFirstStreamableBlock && p.serverForkDB.Exists(blockRef.ID()) {
 		blocks = append(blocks, p.serverForkDB.BlockForID(blockRef.ID())) // first streamable block is the LIB, so never appears in ReversibleSegment
 	}
 
 	if len(blocks) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	newWrites := make([]*WriteRequest, len(blocks))
@@ -267,7 +321,7 @@ func (p *FluxDBHandler) reversibleWriteRequestsAt(lib bstream.BlockRef, blockRef
 		newWrites[i] = blk.Object.(*WriteRequest)
 	}
 
-	return newWrites
+	return newWrites, nil
 }
 
 func (p *FluxDBHandler) ProcessBlock(rawBlk *bstream.Block, rawObj interface{}) error {

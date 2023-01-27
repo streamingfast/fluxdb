@@ -5,9 +5,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-### Removed
+### Changed
 
-* **Deprecation** The `FluxDBHandler#SpeculativeWritesFetcher` method is deprecated, use `FluxDBHandler#SpeculativeWritesFetcherByNum` instead.
+* **Breaking** The `SpeculativeWrites` method will now receive optional RequestBlock (use empty ID to match block number), defaulting to HEAD. It also returns the last written block for consistency (and possibly errors).
+* **Breaking** The custom `speculativeWritesFetcher`, headBlockFetcher and reversibleBlockWritesFetcher are now passed when calling BuildPipeline instead of being publicly modifyable.
 
 ### Added
 
@@ -18,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `FluxDBHandler#ReversibleBlock` to fetch an existing block from internal ForkDB (reversible segment of the chain).
 
 ### Fixed
+
+- Fixed race conditions when requesting blocks close to the HEAD
 
 - Fixed `ReadSingletEntries` returning only one result.
 
