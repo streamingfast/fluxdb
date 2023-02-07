@@ -93,7 +93,7 @@ func (fdb *FluxDB) VerifyAllShardsWritten(ctx context.Context) (*shardProgressSt
 	if len(stats.FaultyShards) > 0 {
 		faultyShards := make([]string, len(stats.FaultyShards))
 		for i, faultyShard := range stats.FaultyShards {
-			faultyShards[i] = fmt.Sprintf("%d @ %s", faultyShard, stats.BlockRefByShard[faultyShard])
+			faultyShards[i] = fmt.Sprintf("%d @ #%d", faultyShard, stats.BlockRefByShard[faultyShard].Num())
 		}
 
 		err = multierr.Append(err, fmt.Errorf("shards not matching reference block %s, they might be in progress (shards with block mismatch [%s])", stats.ReferenceBlockRef, strings.Join(faultyShards, ", ")))
