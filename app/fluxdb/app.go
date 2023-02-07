@@ -308,7 +308,7 @@ func (a *App) startReprocInjector(ctx context.Context, kvStore store.KVStore) er
 
 	stats, err := db.VerifyAllShardsWritten(ctx)
 	if err != nil {
-		zlog.Info("all shards are not done yet, not updating last block", zap.Error(err))
+		zlog.Info("all shards are not done yet, not updating last block", zap.NamedError("message", err))
 		a.Shutdown(nil)
 		return nil
 	}

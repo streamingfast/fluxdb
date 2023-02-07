@@ -29,6 +29,7 @@ import (
 	"github.com/streamingfast/logging"
 	pbbstream "github.com/streamingfast/pbgo/sf/bstream/v1"
 	pbfluxdb "github.com/streamingfast/pbgo/sf/fluxdb/v1"
+	"go.uber.org/multierr"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"google.golang.org/protobuf/proto"
@@ -85,11 +86,17 @@ func (fdb *FluxDB) VerifyAllShardsWritten(ctx context.Context) (*shardProgressSt
 	}
 
 	if len(stats.MissingShards) > 0 {
-		err = fmt.Errorf("missing shards: %v", stats.MissingShards)
+		err = multierr.Append(err, fmt.Errorf("missing shards: %v", stats.MissingShards))
+
 	}
 
 	if len(stats.FaultyShards) > 0 {
-		err = fmt.Errorf("shards not matching reference block %s (shards %v): %w", stats.ReferenceBlockRef, stats.FaultyShards, err)
+		faultyShards := make([]string, len(stats.FaultyShards))
+		for i, faultyShard := range stats.FaultyShards {
+			faultyShards[i] = fmt.Sprintf("%d @ %s", faultyShard, stats.BlockRefByShard[faultyShard])
+		}
+
+		err = multierr.Append(err, fmt.Errorf("shards not matching reference block %s, they might be in progress (shards with block mismatch [%s])", stats.ReferenceBlockRef, strings.Join(faultyShards, ", ")))
 	}
 
 	return stats, err
