@@ -106,7 +106,7 @@ func (fdb *FluxDB) BuildPipeline(
 		return src
 	})
 
-	fhub := hub.NewForkableHub(liveSourceFactory, oneBlocksSourceFactory, 500,
+	fhub := hub.NewForkableHub(liveSourceFactory, oneBlocksSourceFactory, 0,
 		forkable.WithLogger(zlog),
 		forkable.WithFilters(bstream.StepNew|bstream.StepIrreversible),
 	)
@@ -399,6 +399,7 @@ func (p *FluxDBHandler) ProcessBlock(rawBlk *bstream.Block, rawObj interface{}) 
 			}
 
 			p.serverForkDB.MoveLIB(blkRef)
+			p.serverForkDB.PurgeBeforeLIB(0)
 		} else {
 			// Fetch from database, and sync with the writer before truncating the LIB here.
 			// Don't ask more than once each 2 seconds..
@@ -416,6 +417,7 @@ func (p *FluxDBHandler) ProcessBlock(rawBlk *bstream.Block, rawObj interface{}) 
 					)
 
 					p.serverForkDB.MoveLIB(lastWrittenBlock)
+					p.serverForkDB.PurgeBeforeLIB(200) // keeping blocks before LIB to prevent race condition with the indexer
 				}
 
 				p.lastBlockIDCheck = time.Now()
