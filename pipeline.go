@@ -264,7 +264,7 @@ func (p *FluxDBHandler) FetchSpeculativeWrites(ctx context.Context, optionalRequ
 func (p *FluxDBHandler) updateSpeculativeWrites(lib bstream.BlockRef, newHeadBlock bstream.BlockRef) {
 	newWrites, err := p.fetchSpeculativeWritesForBlockRefInForkDB(lib, newHeadBlock)
 	if err != nil {
-		panic(err)
+		panic(fmt.Errorf("while fetching speculative writes (lib=%s, newHeadBlock=%s, forkdb.hasLIB=%t): %w", lib, newHeadBlock, p.serverForkDB.HasLIB(), err))
 	}
 
 	p.speculativeReadsLock.Lock()
@@ -304,8 +304,8 @@ func (p *FluxDBHandler) fetchSpeculativeWritesForBlockRefInForkDB(lib bstream.Bl
 	}
 
 	blocks, reachedLIB := p.serverForkDB.ReversibleSegment(blockRef)
-	if !reachedLIB {
-		return nil, ErrRequestedBlockNotFound
+	if lib != nil && !reachedLIB {
+		return nil, fmt.Errorf("%w, could not reach LIB", ErrRequestedBlockNotFound)
 	}
 
 	if len(blocks) == 0 && blockRef.Num() == bstream.GetProtocolFirstStreamableBlock && p.serverForkDB.Exists(blockRef.ID()) {
