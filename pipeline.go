@@ -410,7 +410,10 @@ func (p *FluxDBHandler) ProcessBlock(rawBlk *bstream.Block, rawObj interface{}) 
 					return err
 				}
 
-				if lastWrittenBlock.ID() != p.serverForkDB.LIBID() {
+				if lastWrittenBlock.ID() != p.serverForkDB.LIBID() &&
+					blkRef.Num() > lastWrittenBlock.Num() &&
+					lastWrittenBlock.Num() > p.serverForkDB.LIBNum() &&
+					p.serverForkDB.Exists(lastWrittenBlock.ID()) {
 					zlog.Debug("writer's LIB updated, advancing server forkDB in return",
 						zap.Stringer("block", lastWrittenBlock),
 						zap.Uint64("height", lastWrittenBlock.Num()),
