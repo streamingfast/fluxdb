@@ -102,8 +102,8 @@ func NewSharder(shardsStore dstore.Store, scratchDirectory string, shardCount in
 }
 
 func (s *Sharder) ProcessBlock(rawBlk *bstream.Block, obj interface{}) error {
-	if rawBlk.Num()%600 == 0 {
-		zlog.Info("processing block (printed each 600 blocks)", zap.Stringer("block", rawBlk))
+	if rawBlk.Num()%600 == 0 || tracer.Enabled() {
+		zlog.Debug("processing block (printed each 600 blocks)", zap.Stringer("block", rawBlk))
 	}
 
 	if !obj.(bstream.Stepable).Step().Matches(bstream.StepIrreversible) {

@@ -21,8 +21,8 @@ import (
 
 func NewPreprocessBlock(mapper BlockMapper) bstream.PreprocessFunc {
 	return func(rawBlk *bstream.Block) (interface{}, error) {
-		if rawBlk.Num()%600 == 0 {
-			zlog.Info("pre-processing block (printed each 600 blocks)", zap.Stringer("block", rawBlk))
+		if rawBlk.Num()%600 == 0 || tracer.Enabled() {
+			zlog.Debug("pre-processing block (printed each 600 blocks)", zap.Stringer("block", rawBlk))
 		}
 
 		return mapper.Map(rawBlk)

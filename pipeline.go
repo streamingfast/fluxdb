@@ -327,7 +327,7 @@ func (p *FluxDBHandler) fetchSpeculativeWritesForBlockRefInForkDB(lib bstream.Bl
 func (p *FluxDBHandler) ProcessBlock(rawBlk *bstream.Block, rawObj interface{}) error {
 	blkRef := rawBlk.AsRef()
 	if rawBlk.Num()%600 == 0 || tracer.Enabled() {
-		zlog.Info("processing block (printed each 600 blocks)", zap.Stringer("block", blkRef))
+		zlog.Debug("processing block (printed each 600 blocks)", zap.Stringer("block", blkRef))
 	}
 
 	// TODO: move to bstream's interface that matches this, not the actual ForkableObject, when other step-related fields are exported
