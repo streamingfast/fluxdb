@@ -18,11 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/url"
-	"path"
-	"strings"
-
-	"github.com/streamingfast/bstream"
+	pbbstream "github.com/streamingfast/bstream/pb/sf/bstream/v1"
 	"github.com/streamingfast/dmetrics"
 	"github.com/streamingfast/dstore"
 	"github.com/streamingfast/fluxdb"
@@ -31,6 +27,9 @@ import (
 	pbblockmeta "github.com/streamingfast/pbgo/sf/blockmeta/v1"
 	"github.com/streamingfast/shutter"
 	"go.uber.org/zap"
+	"net/url"
+	"path"
+	"strings"
 )
 
 type Config struct {
@@ -72,7 +71,7 @@ type Modules struct {
 	//StartBlockResolver bstream.StartBlockResolver
 
 	// Optional dependencies
-	BlockFilter func(blk *bstream.Block) error
+	BlockFilter func(blk *pbbstream.Block) error
 	BlockMeta   pbblockmeta.BlockIDClient
 }
 

@@ -18,30 +18,30 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
-	"time"
-
 	"github.com/streamingfast/bstream"
 	"github.com/streamingfast/bstream/blockstream"
 	"github.com/streamingfast/bstream/forkable"
 	"github.com/streamingfast/bstream/hub"
+	pbbstream "github.com/streamingfast/bstream/pb/sf/bstream/v1"
 	"github.com/streamingfast/bstream/stream"
 	"github.com/streamingfast/dstore"
 	"github.com/streamingfast/fluxdb/metrics"
 	"go.uber.org/zap"
+	"sync"
+	"time"
 )
 
 var ErrCleanSourceStop = errors.New("clean source stop")
 
 func BuildReprocessingPipeline(
-	blockFilter func(blk *bstream.Block) error,
+	blockFilter func(blk *pbbstream.Block) error,
 	blockMapper BlockMapper,
 	handler bstream.Handler,
 	blocksStore dstore.Store,
 	startBlock uint64,
 ) (*stream.Stream, error) {
 	fdbPreprocessor := NewPreprocessBlock(blockMapper)
-	filePreprocessor := bstream.PreprocessFunc(func(blk *bstream.Block) (interface{}, error) {
+	filePreprocessor := bstream.PreprocessFunc(func(blk *pbbstream.Block) (interface{}, error) {
 		if blockFilter != nil {
 			err := blockFilter(blk)
 			if err != nil {
@@ -79,7 +79,7 @@ func (fdb *FluxDB) BuildPipeline(
 	)
 
 	fdbPreprocessor := NewPreprocessBlock(fdb.blockMapper)
-	preprocessor := bstream.PreprocessFunc(func(blk *bstream.Block) (interface{}, error) {
+	preprocessor := bstream.PreprocessFunc(func(blk *pbbstream.Block) (interface{}, error) {
 		if fdb.blockFilter != nil {
 			err := fdb.blockFilter(blk)
 			if err != nil {
@@ -324,9 +324,9 @@ func (p *FluxDBHandler) fetchSpeculativeWritesForBlockRefInForkDB(lib bstream.Bl
 	return newWrites, nil
 }
 
-func (p *FluxDBHandler) ProcessBlock(rawBlk *bstream.Block, rawObj interface{}) error {
+func (p *FluxDBHandler) ProcessBlock(rawBlk *pbbstream.Block, rawObj interface{}) error {
 	blkRef := rawBlk.AsRef()
-	if rawBlk.Num()%600 == 0 || tracer.Enabled() {
+	if rawBlk.Number%600 == 0 || tracer.Enabled() {
 		zlog.Debug("processing block (printed each 600 blocks)", zap.Stringer("block", blkRef))
 	}
 
@@ -336,7 +336,7 @@ func (p *FluxDBHandler) ProcessBlock(rawBlk *bstream.Block, rawObj interface{}) 
 
 	if step.Matches(bstream.StepNew) {
 		metrics.HeadBlockTimeDrift.SetBlockTime(rawBlk.Time())
-		metrics.HeadBlockNumber.SetUint64(rawBlk.Num())
+		metrics.HeadBlockNumber.SetUint64(rawBlk.Number)
 		if !p.db.IsReady() {
 			if isNearRealtime(rawBlk, time.Now()) && !bstream.EqualsBlockRefs(p.HeadBlock(context.Background()), bstream.BlockRefEmpty) {
 				zlog.Info("realtime blocks flowing, marking process as ready")
@@ -344,7 +344,7 @@ func (p *FluxDBHandler) ProcessBlock(rawBlk *bstream.Block, rawObj interface{}) 
 			}
 		}
 
-		previousID := rawBlk.PreviousID()
+		previousID := rawBlk.ParentId
 
 		p.serverForkDB.AddLink(blkRef, previousID, wrappedObj.(*WriteRequest))
 
@@ -354,9 +354,9 @@ func (p *FluxDBHandler) ProcessBlock(rawBlk *bstream.Block, rawObj interface{}) 
 		// - If the block is the first streamable block, we use it as the LIB
 		//
 		// See comment tagged 69f60031aecb1e0ee5a9b7876ea492f2 (search for it in project)
-		if !p.serverForkDB.HasLIB() && (rawBlk.Num() == bstream.GetProtocolFirstStreamableBlock) {
+		if !p.serverForkDB.HasLIB() && (rawBlk.Number == bstream.GetProtocolFirstStreamableBlock) {
 			zlog.Info("setting internal forkdb LIB to first streamable block")
-			p.serverForkDB.SetLIB(rawBlk, previousID, rawBlk.Num())
+			p.serverForkDB.SetLIB(rawBlk.AsRef(), rawBlk.ParentNum)
 		}
 
 		lib := bstream.NewBlockRef(p.serverForkDB.LIBID(), p.serverForkDB.LIBNum())
@@ -390,7 +390,7 @@ func (p *FluxDBHandler) ProcessBlock(rawBlk *bstream.Block, rawObj interface{}) 
 				timePerBlock := time.Now().Sub(p.batchOpen) / time.Duration(len(p.batchWrites))
 				zlog.Info("wrote irreversible segment of blocks starting here",
 					zap.Stringer("block", blkRef),
-					zap.Uint64("height", rawBlk.Num()),
+					zap.Uint64("height", rawBlk.Number),
 					zap.Duration("batch_elapsed", time.Now().Sub(p.batchOpen)),
 					zap.Duration("batch_elapsed_per_block", timePerBlock),
 					zap.Int("batch_write_count", len(p.batchWrites)),
@@ -435,6 +435,6 @@ func (p *FluxDBHandler) ProcessBlock(rawBlk *bstream.Block, rawObj interface{}) 
 	return nil
 }
 
-func isNearRealtime(blk *bstream.Block, now time.Time) bool {
+func isNearRealtime(blk *pbbstream.Block, now time.Time) bool {
 	return now.Add(-15 * time.Second).Before(blk.Time())
 }

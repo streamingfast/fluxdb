@@ -19,7 +19,7 @@ import (
 	"fmt"
 
 	"github.com/streamingfast/bstream"
-	pbbstream "github.com/streamingfast/pbgo/sf/bstream/v1"
+	pbbstream "github.com/streamingfast/bstream/pb/sf/bstream/v1"
 	pbfluxdb "github.com/streamingfast/pbgo/sf/fluxdb/v1"
 )
 
@@ -38,7 +38,7 @@ type Collection struct {
 }
 
 type BlockMapper interface {
-	Map(rawBlk *bstream.Block) (*WriteRequest, error)
+	Map(rawBlk *pbbstream.Block) (*WriteRequest, error)
 }
 
 type WriteRequest struct {

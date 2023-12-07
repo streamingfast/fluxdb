@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	pbbstream "github.com/streamingfast/bstream/pb/sf/bstream/v1"
 
 	"github.com/streamingfast/bstream"
 	"github.com/streamingfast/bstream/stream"
@@ -34,7 +35,7 @@ type FluxDB struct {
 	store       store.KVStore
 	source      *stream.Stream
 	blockMapper BlockMapper
-	blockFilter func(blk *bstream.Block) error
+	blockFilter func(blk *pbbstream.Block) error
 
 	idxCache                   *indexCache
 	disableIndexing            bool
@@ -67,7 +68,7 @@ func WithSkipLastCheckpointWrite() Option {
 	}
 }
 
-func New(kvStore store.KVStore, blockFilter func(blk *bstream.Block) error, blockMapper BlockMapper, disableIndexing bool, opts ...Option) *FluxDB {
+func New(kvStore store.KVStore, blockFilter func(blk *pbbstream.Block) error, blockMapper BlockMapper, disableIndexing bool, opts ...Option) *FluxDB {
 	fdb := &FluxDB{
 		Shutter:         shutter.New(),
 		store:           kvStore,

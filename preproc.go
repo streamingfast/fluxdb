@@ -16,12 +16,13 @@ package fluxdb
 
 import (
 	"github.com/streamingfast/bstream"
+	pbbstream "github.com/streamingfast/bstream/pb/sf/bstream/v1"
 	"go.uber.org/zap"
 )
 
 func NewPreprocessBlock(mapper BlockMapper) bstream.PreprocessFunc {
-	return func(rawBlk *bstream.Block) (interface{}, error) {
-		if rawBlk.Num()%600 == 0 || tracer.Enabled() {
+	return func(rawBlk *pbbstream.Block) (interface{}, error) {
+		if rawBlk.Number%600 == 0 || tracer.Enabled() {
 			zlog.Debug("pre-processing block (printed each 600 blocks)", zap.Stringer("block", rawBlk))
 		}
 

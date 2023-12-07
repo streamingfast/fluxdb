@@ -3,6 +3,8 @@ package fluxdb
 import (
 	"context"
 	"fmt"
+	pbbstream "github.com/streamingfast/bstream/pb/sf/bstream/v1"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"io/ioutil"
 	"net/url"
 	"os"
@@ -156,7 +158,7 @@ func errorsToStrings(errs []error) (out []string) {
 
 func streamBlock(t *testing.T, sharder *Sharder, id, libID string, request *WriteRequest) {
 	blk := bblock(id, libID)
-	request.Height = blk.Num()
+	request.Height = blk.Number
 	request.BlockRef = blk.AsRef()
 
 	err := sharder.ProcessBlock(blk, fObj(request))
@@ -166,7 +168,7 @@ func streamBlock(t *testing.T, sharder *Sharder, id, libID string, request *Writ
 func endBlock(t *testing.T, sharder *Sharder, id string) {
 	blk := bblock(id, "")
 	req := &WriteRequest{
-		Height:   blk.Num(),
+		Height:   blk.Number,
 		BlockRef: blk.AsRef(),
 	}
 
@@ -181,7 +183,7 @@ func writeRequest(entries []SingletEntry, rows []TabletRow) *WriteRequest {
 	}
 }
 
-func bblock(id, libID string) *bstream.Block {
+func bblock(id, libID string) *pbbstream.Block {
 	ref := bstream.NewBlockRefFromID(id)
 	fork := id[8:]
 
@@ -190,18 +192,28 @@ func bblock(id, libID string) *bstream.Block {
 		libNum = bstream.NewBlockRefFromID(id).Num()
 	}
 
-	return &bstream.Block{
-		Id:         ref.ID(),
-		Number:     ref.Num(),
-		LibNum:     libNum,
-		PreviousId: fmt.Sprintf("%08x%s", uint32(ref.Num()-1), fork),
-		Timestamp:  time.Now(),
+	return &pbbstream.Block{
+		Id:        ref.ID(),
+		Number:    ref.Num(),
+		LibNum:    libNum,
+		ParentId:  fmt.Sprintf("%08x%s", uint32(ref.Num()-1), fork),
+		Timestamp: timestamppb.New(time.Now()),
 	}
 }
 
 type testForkableObject struct {
 	step bstream.StepType
 	obj  interface{}
+}
+
+func (t *testForkableObject) FinalBlockHeight() uint64 {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (t *testForkableObject) ReorgJunctionBlock() bstream.BlockRef {
+	//TODO implement me
+	panic("implement me")
 }
 
 func (t *testForkableObject) Step() bstream.StepType {

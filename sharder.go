@@ -18,18 +18,18 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io"
-	"os"
-	"path"
-	"time"
-
 	"github.com/abourget/llerrgroup"
 	"github.com/minio/highwayhash"
 	"github.com/streamingfast/bstream"
+	pbbstream "github.com/streamingfast/bstream/pb/sf/bstream/v1"
 	"github.com/streamingfast/dbin"
 	"github.com/streamingfast/dstore"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
+	"io"
+	"os"
+	"path"
+	"time"
 )
 
 const shardBinaryContentType = "fwr"
@@ -94,15 +94,18 @@ func NewSharder(shardsStore dstore.Store, scratchDirectory string, shardCount in
 
 		// This is coded to never fail, so we safely ignore the `err` return value
 		s.dbinEncoders[i] = dbin.NewWriter(writer)
-		s.dbinEncoders[i].WriteHeader(shardBinaryContentType, shardBinaryVersion)
+		err := s.dbinEncoders[i].WriteHeader(shardBinaryContentType)
+		if err != nil {
+			return nil, fmt.Errorf("unable to write header: %w", err)
+		}
 		s.statsByShard[i] = stats{requestCount: 0, entriesCount: 0, rowsCount: 0, lastBlockRef: bstream.BlockRefEmpty, lastHeight: 0}
 	}
 
 	return s, nil
 }
 
-func (s *Sharder) ProcessBlock(rawBlk *bstream.Block, obj interface{}) error {
-	if rawBlk.Num()%600 == 0 || tracer.Enabled() {
+func (s *Sharder) ProcessBlock(rawBlk *pbbstream.Block, obj interface{}) error {
+	if rawBlk.Number%600 == 0 || tracer.Enabled() {
 		zlog.Debug("processing block (printed each 600 blocks)", zap.Stringer("block", rawBlk))
 	}
 

@@ -132,13 +132,13 @@ func parseFileName(filename string) (first, last uint64, err error) {
 
 func ReadShard(reader io.Reader, startAfter *uint64) ([]*WriteRequest, error) {
 	dbinDecoder := dbin.NewReader(reader)
-	contentType, version, err := dbinDecoder.ReadHeader()
+	header, err := dbinDecoder.ReadHeader()
 	if err != nil {
 		return nil, fmt.Errorf("read header: %w", err)
 	}
 
-	if contentType != shardBinaryContentType || version != shardBinaryVersion {
-		return nil, fmt.Errorf("file with content type %q and version %d is unsupported, supporting %q at version %d", contentType, version, shardBinaryContentType, shardBinaryVersion)
+	if header.ContentType != shardBinaryContentType || header.Version != shardBinaryVersion {
+		return nil, fmt.Errorf("file with content type %q and version %d is unsupported, supporting %q at version %d", header.ContentType, header.Version, shardBinaryContentType, shardBinaryVersion)
 	}
 
 	var requests []*WriteRequest
@@ -146,7 +146,7 @@ func ReadShard(reader io.Reader, startAfter *uint64) ([]*WriteRequest, error) {
 		msg, err := dbinDecoder.ReadMessage()
 		if msg != nil {
 			protoRequest := pbfluxdb.WriteRequest{}
-			if proto.Unmarshal(msg, &protoRequest); err != nil {
+			if err := proto.Unmarshal(msg, &protoRequest); err != nil {
 				return nil, fmt.Errorf("unmarshal request: %w", err)
 			}
 

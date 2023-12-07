@@ -24,10 +24,10 @@ import (
 	"strings"
 
 	"github.com/streamingfast/bstream"
+	pbbstream "github.com/streamingfast/bstream/pb/sf/bstream/v1"
 	"github.com/streamingfast/dtracing"
 	"github.com/streamingfast/fluxdb/store"
 	"github.com/streamingfast/logging"
-	pbbstream "github.com/streamingfast/pbgo/sf/bstream/v1"
 	pbfluxdb "github.com/streamingfast/pbgo/sf/fluxdb/v1"
 	"go.uber.org/multierr"
 	"go.uber.org/zap"
