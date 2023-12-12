@@ -18,6 +18,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
+	"time"
+
 	"github.com/streamingfast/bstream"
 	"github.com/streamingfast/bstream/blockstream"
 	"github.com/streamingfast/bstream/forkable"
@@ -27,8 +30,6 @@ import (
 	"github.com/streamingfast/dstore"
 	"github.com/streamingfast/fluxdb/metrics"
 	"go.uber.org/zap"
-	"sync"
-	"time"
 )
 
 var ErrCleanSourceStop = errors.New("clean source stop")
@@ -117,6 +118,8 @@ func (fdb *FluxDB) BuildPipeline(
 	if live {
 		select {
 		case <-fhub.Ready:
+		case <-fhub.Terminating():
+			return fmt.Errorf("forkable hub terminating: %w", ctx.Err())
 		case <-ctx.Done():
 			return fmt.Errorf("forkable hub not ready: %w", ctx.Err())
 		}
