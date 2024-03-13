@@ -20,7 +20,7 @@ require (
 	go.opencensus.io v0.23.0
 	go.uber.org/multierr v1.8.0
 	go.uber.org/zap v1.21.0
-	google.golang.org/protobuf v1.28.0
+	google.golang.org/protobuf v1.33.0
 )
 
 require (
