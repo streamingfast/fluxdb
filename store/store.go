@@ -70,6 +70,9 @@ type KVStore interface {
 
 	FetchTabletRows(ctx context.Context, keys [][]byte, onKeyValue OnKeyValue) error
 
+	// HasSinglet will return true if there is at least one singlet entry for the given singlet.
+	HasSinglet(ctx context.Context, singletPrefix []byte) (exists bool, err error)
+
 	// FetchSingletEntry reads a single singlet entry for the given Singlet range. The range must include block
 	// boundaries to ensure we match only element from this singlet and not a next following.
 	//

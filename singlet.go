@@ -54,6 +54,28 @@ func registerSingletFactory(collection uint16, collectionName string, factory Si
 	singletFactories[collection] = factory
 }
 
+// SingletPrefix is a construct that represents a singlet identifier without the
+// height portion and usually with the identifier being trimmed down, this portion
+// is specific to each instance of a singlet.
+type SingletPrefix interface {
+	// Collection to which this singlet is bound to.
+	Collection() uint16
+
+	// Identifier uniquely representing this Singlet instance within its collection.
+	Identifier() []byte
+
+	// String should turn the Singlet into a human readable form. If the
+	// identifier is composed of multiple part, use `:` to delimit them in the string.
+	//
+	// You **should** add the collection name to the singlet identifier, it ease recognition
+	// of which singlet collection you are seeing.
+	//
+	// This method is used by the various `Key*#String` helpers, they all expect this implementation
+	// to have the collection name appended to them, so you should respect this soft constraint
+	// and the `:` delimiter.
+	String() string
+}
+
 // Singlet is a height-aware container for a single piece of information, for
 // example an account's balance.
 //
@@ -111,7 +133,7 @@ func NewSinglet(singletKey []byte) (singlet Singlet, err error) {
 	return
 }
 
-// SingletEqual returns wheter two Singlet instances are considered equal by
+// SingletEqual returns whether two Singlet instances are considered equal by
 // comparing their respective collection and identifier.
 //
 // Two nil values are considered equal.
@@ -125,6 +147,26 @@ func SingletEqual(left, right Singlet) bool {
 	}
 
 	return left.Collection() == right.Collection() && bytes.Equal(left.Identifier(), right.Identifier())
+}
+
+// SingletHasPrefix returns whether a Singlet instances has is prefixed by the given singlet prefix,
+// useful to check if a singlet is from the same collection and has the same identifier prefix.
+//
+// Two nil values are considered equal and a singlet with a nil prefix is also considered equal.
+func SingletHasPrefix(singlet Singlet, prefix SingletPrefix) bool {
+	if singlet == nil && prefix == nil {
+		return true
+	}
+
+	if singlet != nil && prefix == nil {
+		return true
+	}
+
+	if singlet == nil && prefix != nil {
+		return false
+	}
+
+	return singlet.Collection() == prefix.Collection() && bytes.HasPrefix(singlet.Identifier(), prefix.Identifier())
 }
 
 // SingletKey represents the storage key for a Singlet, contains the collection as
@@ -174,6 +216,20 @@ func KeyForSinglet(singlet Singlet) (out SingletKey) {
 
 	out = make([]byte, collectionBytes+identifierBytes)
 	copyCollection(out, singlet.Collection())
+	copy(out[collectionBytes:], identifier)
+	return
+}
+
+// SingletPrefixKey represents the storage key for a SingletPrefix that can be used
+// for singlet prefix queries
+type SingletPrefixKey []byte
+
+func KeyForSingletPrefix(singletPrefix SingletPrefix) (out SingletPrefixKey) {
+	identifier := singletPrefix.Identifier()
+	identifierBytes := len(identifier)
+
+	out = make([]byte, collectionBytes+identifierBytes)
+	copyCollection(out, singletPrefix.Collection())
 	copy(out[collectionBytes:], identifier)
 	return
 }

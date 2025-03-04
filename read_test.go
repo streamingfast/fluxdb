@@ -16,14 +16,12 @@ package fluxdb
 
 import (
 	"context"
-	"encoding/hex"
 	"fmt"
 	"testing"
 
 	"github.com/streamingfast/derr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.opencensus.io/trace"
 )
 
 func TestReadTabletAt_WithSpeculative(t *testing.T) {
@@ -336,6 +334,58 @@ func TestReadSingletAt_OnlyInSpeculative(t *testing.T) {
 	assert.Equal(t, singlet.entry(t, height+1, "002"), entry)
 }
 
+func TestReadHasSinglet_OnlyInDB(t *testing.T) {
+	db, closer := NewTestDB(t)
+	defer closer()
+
+	height := uint64(0)
+	singlet1 := newTestSinglet("abc")
+	singlet2 := newTestSinglet("abd")
+
+	writeBatchOfRequests(t, db,
+		&WriteRequest{SingletEntries: []SingletEntry{singlet1.entry(t, height, "000")}},
+		&WriteRequest{SingletEntries: []SingletEntry{singlet2.entry(t, height+2, "002")}},
+		&WriteRequest{SingletEntries: []SingletEntry{singlet2.entry(t, height+1, "001")}},
+	)
+	found, err := db.HasSinglet(context.Background(), newTestSingletPrefix("ab"), nil)
+	require.NoError(t, err)
+	assert.True(t, found)
+
+	found, err = db.HasSinglet(context.Background(), newTestSingletPrefix("ac"), nil)
+	require.NoError(t, err)
+	assert.False(t, found)
+
+	found, err = db.HasSinglet(context.Background(), newTestSingletPrefix("abc"), nil)
+	require.NoError(t, err)
+	assert.True(t, found)
+}
+
+func TestReadHasSinglet_OnlyInSpeculative(t *testing.T) {
+	db, closer := NewTestDB(t)
+	defer closer()
+
+	height := uint64(123)
+	singlet1 := newTestSinglet("abc")
+	singlet2 := newTestSinglet("abd")
+
+	speculativeWrites := []*WriteRequest{
+		singletEntries(height+1, singlet1.entry(t, height+1, "002")),
+		singletEntries(height+1, singlet2.entry(t, height+1, "003")),
+	}
+
+	found, err := db.HasSinglet(context.Background(), newTestSingletPrefix("ab"), speculativeWrites)
+	require.NoError(t, err)
+	assert.True(t, found)
+
+	found, err = db.HasSinglet(context.Background(), newTestSingletPrefix("ac"), speculativeWrites)
+	require.NoError(t, err)
+	assert.False(t, found)
+
+	found, err = db.HasSinglet(context.Background(), newTestSingletPrefix("abc"), speculativeWrites)
+	require.NoError(t, err)
+	assert.True(t, found)
+}
+
 func TestReadSingletEntries(t *testing.T) {
 	db, closer := NewTestDB(t)
 	defer closer()
@@ -403,11 +453,4 @@ func assertErrorResponse(t *testing.T, expected *derr.ErrorResponse, actual erro
 	require.True(t, ok, "actual value must be a *derr.ErrorResponse type")
 
 	assert.Equal(t, expected, v)
-}
-
-func fixedTraceID(hexInput string) (out trace.TraceID) {
-	rawTraceID, _ := hex.DecodeString(hexInput)
-	copy(out[:], rawTraceID)
-
-	return
 }

@@ -99,15 +99,7 @@ func (fdb *FluxDB) BuildPipeline(
 		)
 	})
 
-	oneBlocksSourceFactory := bstream.SourceFromNumFactoryWithSkipFunc(func(num uint64, h bstream.Handler, skipFunc func(string) bool) bstream.Source {
-		src, err := bstream.NewOneBlocksSource(num, oneBlocksStore, h, bstream.OneBlocksSourceWithSkipperFunc(skipFunc))
-		if err != nil {
-			return nil
-		}
-		return src
-	})
-
-	fhub := hub.NewForkableHub(liveSourceFactory, oneBlocksSourceFactory, 300,
+	fhub := hub.NewForkableHub(liveSourceFactory, 300, oneBlocksStore,
 		forkable.WithLogger(zlog),
 		forkable.WithFilters(bstream.StepNew|bstream.StepIrreversible),
 	)

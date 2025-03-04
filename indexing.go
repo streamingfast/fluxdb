@@ -21,7 +21,6 @@ import (
 	"math"
 	"sort"
 
-	"github.com/streamingfast/dtracing"
 	"github.com/streamingfast/fluxdb/store"
 	"github.com/streamingfast/logging"
 	pbfluxdb "github.com/streamingfast/pbgo/sf/fluxdb/v1"
@@ -35,7 +34,7 @@ func (fdb *FluxDB) IndexTables(ctx context.Context) error {
 		return nil
 	}
 
-	ctx, span := dtracing.StartSpan(ctx, "index tables")
+	ctx, span := ttracer.Start(ctx, "index tables")
 	defer span.End()
 
 	zlog := logging.Logger(ctx, zlog)
@@ -449,7 +448,7 @@ func (fdb *FluxDB) isInIgnoreIndexRange(height uint64) bool {
 // ReadTabletIndexAt returns the latest active index at the provided height. If there is
 // index available at this height, this method returns `nil` as the index value.
 func (fdb *FluxDB) ReadTabletIndexAt(ctx context.Context, tablet Tablet, height uint64) (*TabletIndex, error) {
-	ctx, span := dtracing.StartSpan(ctx, "read tablet index")
+	ctx, span := ttracer.Start(ctx, "read tablet index")
 	defer span.End()
 
 	zlog := logging.Logger(ctx, zlog)
@@ -532,17 +531,18 @@ func (t *indexCache) shouldTriggerIndexing(key TabletKey) bool {
 // should be indexed again.
 //
 // The algorithm is as follow:
-//  If there is less than 25K mutations, skip
-//  If there is greater or equal than 25K mutations =>
-//    If there is no previous index, index
-//    If there is a previous index =>
-//      If the previous index has less or equal than 50K rows, index
-//      If the previous index has more than 50K rows but less or equal than 200K rows =>
-//         If there is greater than "previous index row count / 2" mutations, index
-//         Otherwise, skip
-//      If the previous index has more than 200K rows =>
-//         If there is greater than 100K mutations, index
-//         Otherwise, skip
+//
+//	If there is less than 25K mutations, skip
+//	If there is greater or equal than 25K mutations =>
+//	  If there is no previous index, index
+//	  If there is a previous index =>
+//	    If the previous index has less or equal than 50K rows, index
+//	    If the previous index has more than 50K rows but less or equal than 200K rows =>
+//	       If there is greater than "previous index row count / 2" mutations, index
+//	       Otherwise, skip
+//	    If the previous index has more than 200K rows =>
+//	       If there is greater than 100K mutations, index
+//	       Otherwise, skip
 func (t *indexCache) shouldIndex(key TabletKey, previousIndex *TabletIndex) bool {
 	mutatedRowsCount := t.lastCounters[string(key)]
 

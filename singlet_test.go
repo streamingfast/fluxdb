@@ -133,6 +133,14 @@ func newTestSinglet(elementName string) testSinglet {
 	return testSinglet(elementName)
 }
 
+func newTestSingletPrefix(elementName string) SingletPrefix {
+	if len(elementName) > 3 {
+		panic("test singlet prefix must always be less or equal to 3 characters long")
+	}
+
+	return testSinglet(elementName)
+}
+
 func (s testSinglet) Collection() uint16 {
 	return testSingletCollection
 }
@@ -159,4 +167,70 @@ type testSingletEntry struct {
 
 func (e testSingletEntry) data() string {
 	return string(e.value)
+}
+
+// Introduce altTestSinglet to simulate a singlet with a different collection.
+type altTestSinglet struct {
+	testSinglet
+	collection uint16
+}
+
+func (a altTestSinglet) Collection() uint16 {
+	return a.collection
+}
+
+func TestSingletHasPrefix_AllCases(t *testing.T) {
+	cases := []struct {
+		name     string
+		singlet  Singlet
+		prefix   SingletPrefix
+		expected bool
+	}{
+		{
+			name:     "nil singlet, nil prefix",
+			singlet:  nil,
+			prefix:   nil,
+			expected: true,
+		},
+		{
+			name:     "non-nil singlet, nil prefix",
+			singlet:  testSinglet("abc"),
+			prefix:   nil,
+			expected: true,
+		},
+		{
+			name:     "valid prefix",
+			singlet:  testSinglet("abc"),
+			prefix:   testSinglet("a"),
+			expected: true,
+		},
+		{
+			name:     "invalid prefix",
+			singlet:  testSinglet("abc"),
+			prefix:   testSinglet("abd"),
+			expected: false,
+		},
+		{
+			name:     "different collection",
+			singlet:  testSinglet("abc"),
+			prefix:   altTestSinglet{testSinglet("a"), testSingletCollection + 1},
+			expected: false,
+		},
+		{
+			name:     "nil singlet with non-nil prefix (panic)",
+			singlet:  nil,
+			prefix:   testSinglet("a"),
+			expected: false,
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			result := SingletHasPrefix(tc.singlet, tc.prefix)
+			if result != tc.expected {
+				t.Errorf("expected %v, got %v", tc.expected, result)
+			}
+		})
+	}
 }

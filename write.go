@@ -25,10 +25,10 @@ import (
 
 	"github.com/streamingfast/bstream"
 	pbbstream "github.com/streamingfast/bstream/pb/sf/bstream/v1"
-	"github.com/streamingfast/dtracing"
 	"github.com/streamingfast/fluxdb/store"
 	"github.com/streamingfast/logging"
 	pbfluxdb "github.com/streamingfast/pbgo/sf/fluxdb/v1"
+	"github.com/streamingfast/sf-tracing/tracex"
 	"go.uber.org/multierr"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -38,7 +38,7 @@ import (
 var logWriteBlockStats = os.Getenv("STATEDB_SIZE_STATS") != ""
 
 func (fdb *FluxDB) WriteBatch(ctx context.Context, w []*WriteRequest) error {
-	ctx, span := dtracing.StartSpan(ctx, "write batch", "write_request_count", len(w))
+	ctx, span := ttracer.Start(ctx, "write batch", tracex.Attributes("write_request_count", len(w)))
 	defer span.End()
 
 	if err := fdb.isNextBlock(ctx, w[0].Height); err != nil {

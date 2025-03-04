@@ -20,12 +20,15 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/streamingfast/dtracing"
 	"github.com/streamingfast/fluxdb/store"
 	kv "github.com/streamingfast/kvdb/store"
 	"github.com/streamingfast/logging"
+	"github.com/streamingfast/sf-tracing/tracex"
+	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
 )
+
+var tracer = otel.Tracer("fluxdb/store/kv")
 
 var TblPrefixName = map[byte]string{
 	TblPrefixRows:           "rows",
@@ -64,6 +67,19 @@ func (s *KVStore) Close() error {
 
 func (s *KVStore) NewBatch(logger *zap.Logger) store.Batch {
 	return newBatch(s, logger)
+}
+
+func (s *KVStore) HasSinglet(ctx context.Context, keyPrefix []byte) (exists bool, err error) {
+	err = s.scanPrefix(ctx, TblPrefixRows, keyPrefix, 1, true, func(_ []byte, _ []byte) error {
+		exists = true
+		return store.BreakScan
+	})
+
+	if err != nil && err != store.BreakScan {
+		return false, fmt.Errorf("scan has singlet [%q: %w", keyPrefix, err)
+	}
+
+	return exists, nil
 }
 
 func (s *KVStore) FetchSingletEntry(ctx context.Context, keyStart, keyEnd []byte) (key []byte, value []byte, err error) {
@@ -359,9 +375,10 @@ func (b *batch) Reset() {
 var maxTotalChangeCount = 100
 
 // FIXME: Instead of re-adding our custom logic of 100 max mutation count in there, we should
-//        instead rely on `kvdb.Batch` heuristics to determine if full or not. Only thing to consider
-//        when doing this refactoring (i.e. removing a flush on 100 rows written) is to make "100%"
-//        sure that last checkpoint mutations are always ever written last!
+//
+//	instead rely on `kvdb.Batch` heuristics to determine if full or not. Only thing to consider
+//	when doing this refactoring (i.e. removing a flush on 100 rows written) is to make "100%"
+//	sure that last checkpoint mutations are always ever written last!
 func (b *batch) FlushIfFull(ctx context.Context) (flushed bool, err error) {
 	if b.deletionCount+b.mutationCount <= maxTotalChangeCount {
 		// We are not there yet
@@ -377,7 +394,7 @@ func (b *batch) FlushIfFull(ctx context.Context) (flushed bool, err error) {
 }
 
 func (b *batch) Flush(ctx context.Context) error {
-	ctx, span := dtracing.StartSpan(ctx, "flush batch set")
+	ctx, span := tracer.Start(ctx, "flush batch set")
 	defer span.End()
 
 	b.zlog.Debug("flushing batch set")
@@ -430,7 +447,7 @@ func (b *batch) flushMutations(ctx context.Context) error {
 		}
 
 		b.zlog.Debug("applying bulk update", zap.String("table_name", TblPrefixName[tblName]), zap.Int("mutation_count", muts.len()))
-		ctx, span := dtracing.StartSpan(ctx, "apply bulk updates", "table", tblName, "mutation_count", muts.len())
+		ctx, span := tracer.Start(ctx, "apply bulk updates", tracex.Attributes("table", tblName, "mutation_count", muts.len()))
 
 		for key, value := range muts.mappings {
 			err := b.store.db.Put(ctx, packKey(tblName, []byte(key)), value)

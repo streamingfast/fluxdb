@@ -23,11 +23,11 @@ import (
 	"sort"
 
 	"github.com/streamingfast/bstream"
-	"github.com/streamingfast/dtracing"
 	"github.com/streamingfast/fluxdb/store"
 	kvstore "github.com/streamingfast/kvdb/store"
 	"github.com/streamingfast/logging"
 	pbfluxdb "github.com/streamingfast/pbgo/sf/fluxdb/v1"
+	"github.com/streamingfast/sf-tracing/tracex"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 )
@@ -38,7 +38,7 @@ func (fdb *FluxDB) ReadTabletAt(
 	tablet Tablet,
 	speculativeWrites []*WriteRequest,
 ) ([]TabletRow, error) {
-	ctx, span := dtracing.StartSpan(ctx, "read tablet", "tablet", tablet, "height", height)
+	ctx, span := ttracer.Start(ctx, "read tablet", tracex.Attributes("tablet", tablet, "height", height))
 	defer span.End()
 
 	zlogger := logging.Logger(ctx, zlog)
@@ -184,7 +184,7 @@ func (fdb *FluxDB) ReadTabletRowAt(
 	primaryKey TabletRowPrimaryKey,
 	speculativeWrites []*WriteRequest,
 ) (TabletRow, error) {
-	ctx, span := dtracing.StartSpan(ctx, "read tablet row", "tablet", tablet, "height", height, "primaryKey", primaryKey)
+	ctx, span := ttracer.Start(ctx, "read tablet row", tracex.Attributes("tablet", tablet, "height", height, "primaryKey", primaryKey))
 	defer span.End()
 
 	zlogger := logging.Logger(ctx, zlog)
@@ -303,7 +303,7 @@ func (fdb *FluxDB) ReadSingletEntryAt(
 	height uint64,
 	speculativeWrites []*WriteRequest,
 ) (SingletEntry, error) {
-	ctx, span := dtracing.StartSpan(ctx, "read singlet entry", "singlet", singlet, "height", height)
+	ctx, span := ttracer.Start(ctx, "read singlet entry", tracex.Attributes("singlet", singlet, "height", height))
 	defer span.End()
 
 	// We are using inverted block num, so we are scanning from highest block num (request block num) to lowest block (0)
@@ -348,6 +348,29 @@ func (fdb *FluxDB) ReadSingletEntryAt(
 	return entry, nil
 }
 
+// HasSinglet checks if there is at least one singlet entry for the given singlet
+// prefix.
+func (fdb *FluxDB) HasSinglet(
+	ctx context.Context,
+	singletPrefix SingletPrefix,
+	speculativeWrites []*WriteRequest,
+) (bool, error) {
+	ctx, span := ttracer.Start(ctx, "read has singlet", tracex.Attributes("singlet", singletPrefix))
+	defer span.End()
+
+	zlog.Debug("has singlet from speculative writes", zap.Int("speculative_write_count", len(speculativeWrites)))
+	for _, writeRequest := range speculativeWrites {
+		for _, speculativeEntry := range writeRequest.SingletEntries {
+			if SingletHasPrefix(speculativeEntry.Singlet(), singletPrefix) {
+				return true, nil
+			}
+		}
+	}
+
+	zlog.Debug("has singlet from db")
+	return fdb.store.HasSinglet(ctx, KeyForSingletPrefix(singletPrefix))
+}
+
 // ReadSingletEntries query the storage engine returning all entries for a precise singlet
 // ordered from most recent entries to least recent entries.
 //
@@ -358,7 +381,7 @@ func (fdb *FluxDB) ReadSingletEntries(
 	singlet Singlet,
 	speculativeWrites []*WriteRequest,
 ) ([]SingletEntry, error) {
-	ctx, span := dtracing.StartSpan(ctx, "read singlet entries", "singlet", singlet)
+	ctx, span := ttracer.Start(ctx, "read singlet entries", tracex.Attributes("singlet", singlet))
 	defer span.End()
 
 	// We are using inverted block num, so we are scanning from highest block num to lowest block (0)
@@ -408,7 +431,7 @@ func (fdb *FluxDB) ReadSingletEntries(
 }
 
 func (fdb *FluxDB) HasSeenAnyRowForTablet(ctx context.Context, tablet Tablet) (exists bool, err error) {
-	ctx, span := dtracing.StartSpan(ctx, "has seen tablet row", "tablet", tablet.String())
+	ctx, span := ttracer.Start(ctx, "has seen tablet row", tracex.Attributes("tablet", tablet))
 	defer span.End()
 
 	return fdb.store.HasTabletRow(ctx, KeyForTabletAt(tablet, 0), KeyForTabletAt(tablet, math.MaxUint64))

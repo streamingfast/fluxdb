@@ -23,7 +23,7 @@ import (
 func NewPreprocessBlock(mapper BlockMapper) bstream.PreprocessFunc {
 	return func(rawBlk *pbbstream.Block) (interface{}, error) {
 		if rawBlk.Number%600 == 0 || tracer.Enabled() {
-			zlog.Debug("pre-processing block (printed each 600 blocks)", zap.Stringer("block", rawBlk))
+			zlog.Debug("pre-processing block (printed each 600 blocks)", zap.Stringer("block", rawBlk.AsRef()))
 		}
 
 		return mapper.Map(rawBlk)
