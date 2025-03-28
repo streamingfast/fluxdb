@@ -47,6 +47,10 @@ type WriteRequest struct {
 
 	Height   uint64
 	BlockRef bstream.BlockRef
+
+	// OpaqueData can be used by the mapper to attached additional data to the WriteRequest,
+	// consumer will then be able to read this data when they retrieve the WriteRequest.
+	OpaqueData any
 }
 
 func NewWriteRequestFromProto(request *pbfluxdb.WriteRequest) (*WriteRequest, error) {
