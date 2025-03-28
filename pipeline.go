@@ -111,8 +111,15 @@ func (fdb *FluxDB) BuildPipeline(
 		select {
 		case <-fhub.Ready:
 		case <-fhub.Terminating():
-			return fmt.Errorf("forkable hub terminating: %w", ctx.Err())
+			zlog.Error("forkable hub terminating while waiting for ready", zap.NamedError("hub_error", fhub.Err()), zap.NamedError("context_error", ctx.Err()))
+			if fhub.Err() != nil {
+				return fmt.Errorf("forkable hub terminating: %w", fhub.Err())
+			}
+
+			return fmt.Errorf("forkable hub terminating without providing an error")
 		case <-ctx.Done():
+			zlog.Error("context while waiting for forkable hub to be ready", zap.NamedError("hub_error", fhub.Err()), zap.NamedError("context_error", ctx.Err()))
+
 			return fmt.Errorf("forkable hub not ready: %w", ctx.Err())
 		}
 	}
